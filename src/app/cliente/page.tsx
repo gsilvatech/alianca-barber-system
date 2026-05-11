@@ -3,6 +3,8 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import DailyWord from "@/components/DailyWord";
+// No topo do seu ClientePage.tsx
+import { SERVICES, HOURS } from "@/lib/constant";
 
 type Barber = { id: string; display_name: string; whatsapp: string };
 type Appointment = {
