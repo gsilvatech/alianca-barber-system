@@ -11,6 +11,7 @@ export default function CadastroPage() {
     name: "",
     email: "",
     phone: "",
+    birthDate: "", // Novo campo para o CRM
     password: "",
   });
   const [error, setError] = useState("");
@@ -29,7 +30,12 @@ export default function CadastroPage() {
       email: form.email,
       password: form.password,
       options: {
-        data: { name: form.name, phone: form.phone, role: "client" },
+        data: {
+          name: form.name,
+          phone: form.phone,
+          birth_date: form.birthDate, // Guardando no metadata
+          role: "client",
+        },
       },
     });
 
@@ -59,6 +65,7 @@ export default function CadastroPage() {
           onSubmit={handleCadastro}
           className="bg-zinc-900 rounded-2xl p-6 flex flex-col gap-4 border border-zinc-800"
         >
+          {/* Mapeando os campos dinamicamente */}
           {[
             {
               label: "Nome completo",
@@ -76,7 +83,13 @@ export default function CadastroPage() {
               label: "Celular (WhatsApp)",
               field: "phone",
               type: "tel",
-              placeholder: "(21) 99999-0000",
+              placeholder: "(24) 99999-0000",
+            },
+            {
+              label: "Data de Nascimento", // Novo campo visual
+              field: "birthDate",
+              type: "date",
+              placeholder: "",
             },
             {
               label: "Senha",
@@ -96,7 +109,7 @@ export default function CadastroPage() {
                 onChange={(e) => set(field, e.target.value)}
                 placeholder={placeholder}
                 minLength={field === "password" ? 6 : undefined}
-                className="bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-3 text-white text-sm focus:outline-none focus:border-amber-400 transition-colors"
+                className="bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-3 text-white text-sm focus:outline-none focus:border-amber-400 transition-colors [color-scheme:dark]"
               />
             </div>
           ))}
