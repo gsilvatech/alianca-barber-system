@@ -52,7 +52,7 @@ export default function BarbeiroPage() {
         .select("name, role")
         .eq("id", user.id)
         .single();
-      if (prof?.role !== "barbers") {
+      if (prof?.role !== "barbers" && prof?.role !== "barber") {
         router.push("/cliente");
         return;
       }
@@ -145,6 +145,7 @@ export default function BarbeiroPage() {
 
   async function handleLogout() {
     await supabase.auth.signOut();
+    router.refresh(); // Limpa o estado das rotas
     router.push("/login");
   }
 
