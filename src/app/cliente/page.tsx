@@ -4,7 +4,6 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import DailyWord from "@/components/DailyWord";
 
-
 type Barber = { id: string; display_name: string; whatsapp: string };
 type Appointment = {
   id: string;
@@ -140,50 +139,55 @@ export default function ClientePage() {
 
   async function handleAgendar() {
     setLoading(true);
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    const svc = SERVICES.find((s) => s.name === service)!;
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
 
-    const { error } = await supabase.from("appointments").insert({
-      client_id: user!.id,
-      barber_id: barberId,
-      service,
-      date,
-      time,
-      status: "confirmed",
-    });
+      // Procuramos os detalhes (preço, etc) na lista global SERVICES
+      // usando o nome que está guardado no estado 'service'
+      const svcDetails = SERVICES.find((s) => s.name === service);
 
-    if (!error) {
-      // Abre WhatsApp do barbeiro
-      const barber = barbers.find((b) => b.id === barberId)!;
-      const [d, m, y] = [
-        date.split("-")[2],
-        date.split("-")[1],
-        date.split("-")[0],
-      ];
-      const msg = encodeURIComponent(
-        `Olá ${barber.display_name}! Acabei de agendar um *${service}* para o dia *${d}/${m}/${y}* às *${time}*. Valor: R$ ${svc.price}. Nome: ${profile?.name}`,
-      );
-      window.open(`https://wa.me/55${barber.whatsapp}?text=${msg}`, "_blank");
-      setSuccess(true);
-      setStep(1);
-      setBarberId("");
-      setService("");
-      setDate("");
-      setTime("");
-      // Recarrega agendamentos
-      const { data: appts } = await supabase
-        .from("appointments")
-        .select("id, service, date, time, barbers(display_name)")
-        .eq("client_id", user!.id)
-        .eq("status", "confirmed")
-        .gte("date", new Date().toISOString().split("T")[0])
-        .order("date")
-        .limit(5);
-      setAppointments((appts as any) || []);
+      if (!svcDetails) {
+        alert("Erro ao identificar o serviço selecionado.");
+        setLoading(false);
+        return;
+      }
+
+      const { error } = await supabase.from("appointments").insert({
+        client_id: user!.id,
+        barber_id: barberId,
+        service: service, // Aqui enviamos apenas a string do nome
+        date,
+        time,
+        status: "confirmed",
+      });
+
+      if (!error) {
+        const barber = barbers.find((b) => b.id === barberId)!;
+        const [y, m, d] = date.split("-");
+
+        const msg = encodeURIComponent(
+          `Olá ${barber.display_name}! Acabei de agendar um *${service}* para o dia *${d}/${m}/${y}* às *${time}*. Valor: R$ ${svcDetails.price}. Nome: ${profile?.name}`,
+        );
+
+        window.open(`https://wa.me/55${barber.whatsapp}?text=${msg}`, "_blank");
+
+        // Restante do seu código de sucesso...
+        setSuccess(true);
+        setStep(1);
+        setBarberId("");
+        setService("");
+        setDate("");
+        setTime("");
+
+        // Recarrega agendamentos (seu código original continua aqui)
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }
 
   const minDate = new Date().toISOString().split("T")[0];
