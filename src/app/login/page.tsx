@@ -38,7 +38,7 @@ export default function LoginPage() {
       .single();
 
     router.push(
-      profile?.role === "barber"
+      profile?.role === "barbers"
         ? "/barbeiro"
         : profile?.role === "admin"
           ? "/admin"
