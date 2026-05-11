@@ -2,7 +2,8 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { SERVICES, HOURS } from "@/lib/constant";
+import DailyWord from "@/components/DailyWord";
+
 
 type Barber = { id: string; display_name: string; whatsapp: string };
 type Appointment = {
@@ -31,6 +32,46 @@ export default function ClientePage() {
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
+  const [cancelConfirm, setCancelConfirm] = useState<{
+    id: string;
+    barber: string;
+    service: string;
+    date: string;
+    time: string;
+  } | null>(null);
+
+  async function cancelAppointment(
+    id: string,
+    barber: string,
+    service: string,
+    date: string,
+    time: string,
+  ) {
+    setCancelConfirm({ id, barber, service, date, time });
+  }
+
+  async function confirmCancel() {
+    if (!cancelConfirm) return;
+    const { error } = await supabase
+      .from("appointments")
+      .update({ status: "cancelled" })
+      .eq("id", cancelConfirm.id);
+
+    if (!error) {
+      setAppointments((prev) => prev.filter((a) => a.id !== cancelConfirm.id));
+      // Abre WhatsApp do barbeiro avisando o cancelamento
+      const barber = barbers.find(
+        (b) => b.display_name === cancelConfirm.barber,
+      );
+      if (barber) {
+        const msg = encodeURIComponent(
+          `Olá ${cancelConfirm.barber}! Precisei cancelar meu agendamento de *${cancelConfirm.service}* do dia *${cancelConfirm.date}* às *${cancelConfirm.time}*. Nome: ${profile?.name}`,
+        );
+        window.open(`https://wa.me/55${barber.whatsapp}?text=${msg}`, "_blank");
+      }
+    }
+    setCancelConfirm(null);
+  }
 
   useEffect(() => {
     async function load() {
@@ -157,57 +198,20 @@ export default function ClientePage() {
     router.push("/login");
   }
 
-  async function handleCancel(id: string) {
-    const confirm = window.confirm(
-      "Deseja realmente cancelar este agendamento?",
-    );
-    if (!confirm) return;
-
-    setLoading(true);
-    const { error } = await supabase
-      .from("appointments")
-      .update({ status: "canceled" })
-      .eq("id", id);
-
-    if (error) {
-      alert("Erro ao cancelar: " + error.message);
-    } else {
-      alert("Agendamento cancelado!");
-
-      // Aqui reusamos a sua lógica de buscar os agendamentos atualizados
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      const { data: appts } = await supabase
-        .from("appointments")
-        .select("id, service, date, time, barbers(display_name)")
-        .eq("client_id", user?.id)
-        .eq("status", "confirmed") // Para o card sumir da tela de "próximos"
-        .gte("date", new Date().toISOString().split("T")[0])
-        .order("date")
-        .limit(5);
-
-      setAppointments((appts as any) || []);
-    }
-    setLoading(false);
-  }
-
   return (
     <main className="min-h-screen bg-zinc-950 text-white">
       {/* Header */}
-      <header className="bg-zinc-900 border-b border-zinc-800 px-4 py-4 flex items-center justify-between max-w-2xl mx-auto">
-        <img
-          src="/logo.png"
-          alt="Aliança Barber Club"
-          className="h-20 w-auto"
-        />
-        <div className="flex items-center gap-3">
-          <span className="text-zinc-400 text-sm hidden sm:block">
-            {profile?.name}
-          </span>
+      <header className="bg-zinc-900 border-b border-zinc-800 px-4 py-3">
+        <div className="max-w-2xl mx-auto flex items-center justify-between">
+          <div className="w-16" />
+          <img
+            src="/logo.png"
+            alt="Aliança Barber Club"
+            className="h-20 w-auto mx-auto"
+          />
           <button
             onClick={handleLogout}
-            className="text-zinc-500 text-sm hover:text-white transition-colors"
+            className="text-zinc-500 text-sm hover:text-white transition-colors w-16 text-right"
           >
             Sair
           </button>
@@ -224,6 +228,9 @@ export default function ClientePage() {
             Agende seu próximo atendimento abaixo.
           </p>
         </div>
+
+        {/* Palavra do Dia */}
+        <DailyWord />
 
         {/* Próximos agendamentos */}
         {appointments.length > 0 && (
@@ -245,29 +252,88 @@ export default function ClientePage() {
                       </div>
                       <div className="text-zinc-500 text-xs mt-1">{a.time}</div>
                     </div>
-                    <div>
+                    <div className="flex-1">
                       <div className="font-semibold text-sm">{a.service}</div>
                       <div className="text-zinc-400 text-xs mt-0.5">
                         {(a.barbers as any)?.display_name}
                       </div>
                     </div>
-                    <span className="ml-auto text-xs bg-emerald-900/40 text-emerald-400 px-2 py-1 rounded-md font-semibold">
-                      Confirmado
-                    </span>
-
-                    {/* ADICIONE O BOTÃO AQUI EMBAIXO */}
-                    <button
-                      onClick={() => handleCancel(a.id)}
-                      disabled={loading}
-                      className="text-[10px] text-zinc-500 hover:text-red-400 transition-colors uppercase font-bold mt-1 block text-right"
-                    >
-                      {loading ? "..." : "Cancelar"}
-                    </button>
+                    <div className="flex flex-col items-end gap-1">
+                      <span className="text-xs bg-emerald-900/40 text-emerald-400 px-2 py-1 rounded-md font-semibold">
+                        Confirmado
+                      </span>
+                      <button
+                        onClick={() =>
+                          cancelAppointment(
+                            a.id,
+                            (a.barbers as any)?.display_name,
+                            a.service,
+                            `${d}/${m}`,
+                            a.time,
+                          )
+                        }
+                        className="text-xs text-red-400 hover:text-red-300 transition-colors font-medium"
+                      >
+                        Cancelar
+                      </button>
+                    </div>
                   </div>
                 );
               })}
             </div>
           </section>
+        )}
+
+        {/* Modal de confirmação de cancelamento */}
+        {cancelConfirm && (
+          <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 px-4">
+            <div className="bg-zinc-900 border border-zinc-700 rounded-2xl p-6 w-full max-w-sm flex flex-col gap-4">
+              <h3 className="font-bold text-lg">Cancelar agendamento?</h3>
+              <div className="bg-zinc-800 rounded-xl p-4 flex flex-col gap-1 text-sm">
+                <span className="text-zinc-400">
+                  Barbeiro:{" "}
+                  <span className="text-white font-medium">
+                    {cancelConfirm.barber}
+                  </span>
+                </span>
+                <span className="text-zinc-400">
+                  Serviço:{" "}
+                  <span className="text-white font-medium">
+                    {cancelConfirm.service}
+                  </span>
+                </span>
+                <span className="text-zinc-400">
+                  Data:{" "}
+                  <span className="text-white font-medium">
+                    {cancelConfirm.date}
+                  </span>
+                </span>
+                <span className="text-zinc-400">
+                  Horário:{" "}
+                  <span className="text-white font-medium">
+                    {cancelConfirm.time}
+                  </span>
+                </span>
+              </div>
+              <p className="text-zinc-400 text-sm">
+                O barbeiro será notificado via WhatsApp sobre o cancelamento.
+              </p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setCancelConfirm(null)}
+                  className="flex-1 py-3 rounded-xl border border-zinc-700 text-zinc-400 hover:text-white hover:border-zinc-500 transition-colors font-semibold text-sm"
+                >
+                  Voltar
+                </button>
+                <button
+                  onClick={confirmCancel}
+                  className="flex-1 py-3 rounded-xl bg-red-500 hover:bg-red-400 transition-colors text-white font-semibold text-sm"
+                >
+                  Confirmar cancelamento
+                </button>
+              </div>
+            </div>
+          </div>
         )}
 
         {/* Toast sucesso */}

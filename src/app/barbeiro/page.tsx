@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import DailyWord from "@/components/DailyWord";
 
 type Appointment = {
   id: string;
@@ -178,6 +179,9 @@ export default function BarbeiroPage() {
             Aqui está sua agenda de hoje.
           </p>
         </div>
+
+        {/* Palavra do Dia */}
+        <DailyWord />
 
         {/* Agenda do dia */}
         <section>
