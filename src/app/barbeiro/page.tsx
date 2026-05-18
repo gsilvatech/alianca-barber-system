@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import DailyWord from "@/components/DailyWord";
+import { SERVICES } from "@/lib/constant";
 import {
   Home,
   Calendar,
@@ -26,15 +27,11 @@ export default function BarbeiroPage() {
   const router = useRouter();
   const supabase = createClient();
 
-  const [profile, setProfile] = useState<{ name: string; id: string } | null>(
-    null,
-  );
+  const [profile, setProfile] = useState<{ name: string; id: string } | null>(null);
   const [barberId, setBarberId] = useState<string | null>(null);
   const [today, setToday] = useState<Appointment[]>([]);
   const [week, setWeek] = useState<Appointment[]>([]);
-  const [blockedDates, setBlockedDates] = useState<
-    { id: string; date: string; reason: string }[]
-  >([]);
+  const [blockedDates, setBlockedDates] = useState<{ id: string; date: string; reason: string }[]>([]);
   const [newBlockDate, setNewBlockDate] = useState("");
   const [newBlockReason, setNewBlockReason] = useState("");
   const [loadingBlock, setLoadingBlock] = useState(false);
@@ -43,31 +40,12 @@ export default function BarbeiroPage() {
   const [isFullDay, setIsFullDay] = useState(true);
   const [selectedTime, setSelectedTime] = useState("");
   const HOURS = [
-    "08:00",
-    "08:30",
-    "09:00",
-    "09:30",
-    "10:00",
-    "10:30",
-    "11:00",
-    "11:30",
-    "13:00",
-    "13:30",
-    "14:00",
-    "14:30",
-    "15:00",
-    "15:30",
-    "16:00",
-    "16:30",
-    "17:00",
-    "17:30",
-    "18:00",
-    "18:30",
+    "08:00", "08:30", "09:00", "09:30", "10:00", "10:30", "11:00", "11:30",
+    "13:00", "13:30", "14:00", "14:30", "15:00", "15:30", "16:00", "16:30",
+    "17:00", "17:30", "18:00", "18:30",
   ];
 
-  const [activeTab, setActiveTab] = useState<
-    "home" | "agenda" | "financeiro" | "crm" | "novo"
-  >("home");
+  const [activeTab, setActiveTab] = useState<"home" | "agenda" | "financeiro" | "crm" | "novo">("home");
 
   const todayStr = new Date().toISOString().split("T")[0];
   const weekEnd = new Date();
@@ -76,6 +54,14 @@ export default function BarbeiroPage() {
   const monthEnd = new Date();
   monthEnd.setDate(monthEnd.getDate() + 30);
   const monthEndStr = monthEnd.toISOString().split("T")[0];
+
+  // Inicia o formulário manual com a data de hoje por padrão
+  const [manualCustomer, setManualCustomer] = useState("");
+  const [manualService, setManualService] = useState("");
+  const [manualPrice, setManualPrice] = useState("");
+  const [manualDate, setManualDate] = useState(todayStr);
+  const [manualTime, setManualTime] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
 
   async function loadAppts() {
     if (!barberId) return;
@@ -115,9 +101,7 @@ export default function BarbeiroPage() {
 
   useEffect(() => {
     async function loadInitial() {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
+      const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
         router.push("/login");
         return;
@@ -125,7 +109,7 @@ export default function BarbeiroPage() {
 
       const { data: prof } = await supabase
         .from("profiles")
-        .select("id, name, role") // Garanta que o 'id' esteja aqui!
+        .select("id, name, role")
         .eq("id", user.id)
         .single();
 
@@ -164,10 +148,9 @@ export default function BarbeiroPage() {
 
   async function handleSmartBlock() {
     if (!newBlockDate || !barberId) return;
-    setLoadingBlock(true);
+    loadingBlock || setLoadingBlock(true);
 
     if (isFullDay) {
-      // Tabela blocked_dates (Dia Inteiro)
       const { data, error } = await supabase
         .from("blocked_dates")
         .insert({
@@ -179,15 +162,11 @@ export default function BarbeiroPage() {
         .single();
       if (!error) setBlockedDates((prev) => [...prev, data]);
     } else {
-      // Tabela appointments (Apenas um horário)
-      const motivoFinal = newBlockReason
-        ? `BLOQUEIO: ${newBlockReason}`
-        : "BLOQUEIO INDISPONÍVEL";
+      const motivoFinal = newBlockReason ? `BLOQUEIO: ${newBlockReason}` : "BLOQUEIO INDISPONÍVEL";
 
-      // Dentro do else do handleSmartBlock
       const { error } = await supabase.from("appointments").insert({
         barber_id: barberId,
-        client_id: profile?.id, // Você é o "cliente" do próprio bloqueio
+        client_id: profile?.id,
         date: newBlockDate,
         time: selectedTime,
         service: motivoFinal,
@@ -197,6 +176,8 @@ export default function BarbeiroPage() {
       if (error) {
         console.error("Erro ao bloquear:", error.message);
         alert("Erro ao salvar bloqueio no banco.");
+      } else {
+        loadAppts();
       }
     }
 
@@ -207,18 +188,61 @@ export default function BarbeiroPage() {
   }
 
   async function deleteAppointment(id: string) {
-    // Opcional: Adicionar um confirm para evitar cliques acidentais
     if (!confirm("Deseja remover este bloqueio?")) return;
-
     const { error } = await supabase.from("appointments").delete().eq("id", id);
-
     if (error) {
       console.error("Erro ao deletar:", error.message);
       alert("Não foi possível remover o bloqueio.");
     } else {
-      // Recarrega as listas para sumir da tela na hora
       loadAppts();
     }
+  }
+
+  // FUNÇÕES AUXILIARES: Tratam o texto da string 'MANUAL: Cliente - Serviço'
+  function renderCustomerName(a: Appointment) {
+    if (a.service?.startsWith("MANUAL:")) {
+      return a.service.split(" - ")[0].replace("MANUAL: ", "");
+    }
+    return a.profiles?.name || "Cliente sem nome";
+  }
+
+  function renderServiceDescription(a: Appointment) {
+    if (a.service?.startsWith("MANUAL:")) {
+      return a.service.split(" - ")[1] || "Serviço Manual";
+    }
+    return a.service;
+  }
+
+  async function handleManualSchedule() {
+    if (!manualCustomer || !manualService || !manualDate || !manualTime) {
+      alert("Preencha todos os campos, mestre!");
+      return;
+    }
+
+    setIsSaving(true);
+
+    const { error } = await supabase.from("appointments").insert({
+      barber_id: barberId,
+      client_id: profile?.id,
+      date: manualDate,
+      time: manualTime,
+      service: `MANUAL: ${manualCustomer} - ${manualService}`,
+      status: "confirmed",
+    });
+
+    if (!error) {
+      setManualCustomer("");
+      setManualService("");
+      setManualPrice("");
+      setManualDate(todayStr); // Reseta voltando para hoje
+      setManualTime("");
+      setActiveTab("agenda");
+      loadAppts();
+    } else {
+      console.error(error);
+      alert("Erro ao agendar. Verifique a conexão.");
+    }
+    setIsSaving(false);
   }
 
   const NavButton = ({ icon: Icon, label, tabId }: any) => (
@@ -284,17 +308,13 @@ export default function BarbeiroPage() {
                           </div>
                         </div>
                         <div className="flex-1">
-                          <div
-                            className={`font-bold italic ${isBlock ? "text-red-400" : "text-zinc-100"}`}
-                          >
-                            {isBlock
-                              ? "HORÁRIO BLOQUEADO"
-                              : (a.profiles as any)?.name}
+                          {/* AJUSTADO: Se for agendamento manual, exibe o nome do cliente no título */}
+                          <div className={`font-bold italic ${isBlock ? "text-red-400" : "text-zinc-100"}`}>
+                            {isBlock ? "HORÁRIO BLOQUEADO" : renderCustomerName(a)}
                           </div>
-                          <div className="text-zinc-500 text-xs font-medium">
-                            {isBlock
-                              ? a.service.replace("BLOQUEIO: ", "")
-                              : a.service}
+                          {/* AJUSTADO: Se for manual, renderiza apenas o nome do serviço limpo na legenda */}
+                          <div className="text-zinc-500 text-xs font-medium mt-0.5">
+                            {isBlock ? a.service.replace("BLOQUEIO: ", "") : renderServiceDescription(a)}
                           </div>
                         </div>
                       </div>
@@ -333,15 +353,13 @@ export default function BarbeiroPage() {
                         </div>
                       </div>
                       <div className="flex-1">
-                        <div
-                          className={`font-bold text-sm italic ${isBlock ? "text-red-400" : "text-zinc-100"}`}
-                        >
-                          {isBlock ? "BLOQUEIO" : (a.profiles as any)?.name}
+                        {/* AJUSTADO: Nome do cliente manual renderizado no destaque da listagem da semana */}
+                        <div className={`font-bold text-sm italic ${isBlock ? "text-red-400" : "text-zinc-100"}`}>
+                          {isBlock ? "BLOQUEIO" : renderCustomerName(a)}
                         </div>
-                        <div className="text-zinc-500 text-xs">
-                          {isBlock
-                            ? a.service.replace("BLOQUEIO: ", "")
-                            : a.service}
+                        {/* AJUSTADO: Descrição do serviço tratada na legenda */}
+                        <div className="text-zinc-500 text-xs mt-0.5">
+                          {isBlock ? a.service.replace("BLOQUEIO: ", "") : renderServiceDescription(a)}
                         </div>
                       </div>
                       {isBlock && (
@@ -416,7 +434,7 @@ export default function BarbeiroPage() {
                   {loadingBlock ? "Processando..." : "Confirmar Bloqueio"}
                 </button>
               </div>
-              {/* Lista de Datas Bloqueadas (Dia Inteiro) */}
+
               {blockedDates.length > 0 && (
                 <div className="mt-6 flex flex-col gap-2">
                   <p className="text-[10px] font-bold text-zinc-600 uppercase mb-2">
@@ -429,7 +447,7 @@ export default function BarbeiroPage() {
                     >
                       <div className="flex flex-col">
                         <span className="text-sm font-black text-red-400 italic">
-                          {b.date.split("-").reverse().join("/")}
+                          b.date.split("-").reverse().join("/")
                         </span>
                         <span className="text-zinc-500 text-[10px] font-bold uppercase">
                           {b.reason}
@@ -446,9 +464,7 @@ export default function BarbeiroPage() {
                 </div>
               )}
 
-              {/* NOVO: Lista de Horários Bloqueados Individuais */}
-              {week.filter((a) => a.service.startsWith("BLOQUEIO")).length >
-                0 && (
+              {week.filter((a) => a.service.startsWith("BLOQUEIO")).length > 0 && (
                 <div className="mt-6 flex flex-col gap-2">
                   <p className="text-[10px] font-bold text-zinc-600 uppercase mb-2">
                     Horários Bloqueados
@@ -463,11 +479,7 @@ export default function BarbeiroPage() {
                         <div className="flex flex-col">
                           <div className="flex items-center gap-2">
                             <span className="text-sm font-black text-amber-400 italic">
-                              {a.date
-                                .split("-")
-                                .reverse()
-                                .slice(0, 2)
-                                .join("/")}
+                              {a.date.split("-").reverse().slice(0, 2).join("/")}
                             </span>
                             <span className="text-sm font-black text-white">
                               {a.time}
@@ -493,7 +505,6 @@ export default function BarbeiroPage() {
           </div>
         )}
 
-        {/* MANTIVE AS OUTRAS TABS COMO PLACEHOLDERS PARA A PRÓXIMA ETAPA */}
         {activeTab === "financeiro" && (
           <div className="py-20 text-center text-zinc-500 italic animate-pulse">
             Finanças em construção...
@@ -504,9 +515,110 @@ export default function BarbeiroPage() {
             CRM em construção...
           </div>
         )}
+
         {activeTab === "novo" && (
-          <div className="py-20 text-center text-zinc-500 italic animate-pulse">
-            Agendamento Manual em construção...
+          <div className="flex flex-col gap-6 animate-in fade-in duration-500">
+            <header>
+              <h1 className="text-2xl font-black text-white italic uppercase tracking-tighter">
+                Novo Agendamento
+              </h1>
+              <p className="text-zinc-500 text-xs font-bold uppercase">
+                Cadastre um cliente manualmente
+              </p>
+            </header>
+
+            <div className="flex flex-col gap-4 bg-zinc-900/50 border border-zinc-800 p-6 rounded-3xl">
+              <div className="flex flex-col gap-2">
+                <label className="text-[10px] font-black text-zinc-500 uppercase ml-1">
+                  Nome do Cliente
+                </label>
+                <input
+                  type="text"
+                  placeholder="Ex: João Silva"
+                  value={manualCustomer}
+                  onChange={(e) => setManualCustomer(e.target.value)}
+                  className="bg-zinc-800 border border-zinc-700 rounded-2xl px-4 py-3 text-white focus:outline-none focus:border-amber-500 transition-colors"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="flex flex-col gap-2">
+                  <label className="text-[10px] font-black text-zinc-500 uppercase ml-1">
+                    Serviço
+                  </label>
+                  <select
+                    value={manualService}
+                    onChange={(e) => {
+                      const selectedTitle = e.target.value;
+                      setManualService(selectedTitle);
+
+                      const serviceData = SERVICES.find((s) => s.name === selectedTitle);
+                      if (serviceData) {
+                        setManualPrice(
+                          `R$ ${serviceData.price.toFixed(2).replace(".", ",")}`,
+                        );
+                      }
+                    }}
+                    className="bg-zinc-800 border border-zinc-700 rounded-2xl px-4 py-3 text-white focus:outline-none appearance-none"
+                  >
+                    <option value="">Selecionar...</option>
+                    {SERVICES.map((service, index) => (
+                      <option key={index} value={service.name}>
+                        {service.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex flex-col gap-2">
+                  <label className="text-[10px] font-black text-zinc-500 uppercase ml-1">
+                    Preço Est.
+                  </label>
+                  <input
+                    type="text"
+                    value={manualPrice}
+                    onChange={(e) => setManualPrice(e.target.value)}
+                    className="bg-zinc-800 border border-zinc-700 rounded-2xl px-4 py-3 text-white focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <label className="text-[10px] font-black text-zinc-500 uppercase ml-1">
+                  Horário
+                </label>
+                <select
+                  value={manualTime}
+                  onChange={(e) => setManualTime(e.target.value)}
+                  className="bg-zinc-800 border border-zinc-700 rounded-2xl px-4 py-3 text-white focus:outline-none appearance-none w-full"
+                >
+                  <option value="">Selecionar...</option>
+                  {HOURS.map((hour, index) => (
+                    <option key={index} value={hour}>
+                      {hour}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex flex-col gap-2">
+                <label className="text-[10px] font-black text-zinc-500 uppercase ml-1">
+                  Data
+                </label>
+                <input
+                  type="date"
+                  value={manualDate}
+                  onChange={(e) => setManualDate(e.target.value)}
+                  className="bg-zinc-800 border border-zinc-700 rounded-2xl px-4 py-3 text-white focus:outline-none w-full [color-scheme:dark]"
+                />
+              </div>
+
+              <button
+                onClick={handleManualSchedule}
+                disabled={isSaving}
+                className="mt-4 bg-amber-500 hover:bg-amber-600 disabled:bg-zinc-700 text-black font-black py-4 rounded-2xl uppercase tracking-widest transition-all active:scale-95"
+              >
+                {isSaving ? "Agendando..." : "Confirmar Agendamento"}
+              </button>
+            </div>
           </div>
         )}
       </div>
