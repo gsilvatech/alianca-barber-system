@@ -105,6 +105,31 @@ export default function LoginPage() {
             Cadastre-se
           </Link>
         </p>
+        {/* ASSINATURA PREMIUM - PADRÃO @SGO */}
+        <div className="flex flex-col items-center justify-center gap-2 mt-8 pt-4 border-t border-zinc-900/40 animate-in fade-in duration-700">
+          <p className="text-[10px] tracking-widest text-zinc-600 font-bold uppercase">
+            Powered by <span className="text-amber-500/80">@SGO</span>
+          </p>
+
+          <div className="flex gap-3 text-[11px] font-bold text-zinc-500 uppercase tracking-tight">
+            <a
+              href="https://www.github.com/gsilvatech" // <--- Pluguado sua marca de dev!
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hover:text-amber-400 transition-colors py-1.5 px-3 rounded-xl bg-zinc-900/30 border border-zinc-900 hover:border-zinc-800"
+            >
+              GitHub
+            </a>
+            <a
+              href="https://www.instagram.com/sougabrieloficial"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hover:text-amber-400 transition-colors py-1.5 px-3 rounded-xl bg-zinc-900/30 border border-zinc-900 hover:border-zinc-800"
+            >
+              Instagram
+            </a>
+          </div>
+        </div>
       </div>
     </main>
   );
