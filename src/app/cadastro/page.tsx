@@ -26,24 +26,41 @@ export default function CadastroPage() {
     setLoading(true);
     setError("");
 
-    const { error: authError } = await supabase.auth.signUp({
+    // 1. Cria o usuário no Auth do Supabase
+    const { data: authData, error: authError } = await supabase.auth.signUp({
       email: form.email,
       password: form.password,
       options: {
         data: {
           name: form.name,
           phone: form.phone,
-          birth_date: form.birthDate, // Guardando no metadata
+          birth_date: form.birthDate,
           role: "client",
         },
       },
     });
 
     if (authError) {
-      console.error("Erro Supabase:", authError.message);
+      console.error("Erro Supabase Auth:", authError.message);
       setError(authError.message);
       setLoading(false);
       return;
+    }
+
+    // 2. Grava ou atualiza a tabela pública 'profiles' se o usuário foi criado com sucesso
+    if (authData?.user) {
+      const { error: profileError } = await supabase.from("profiles").upsert({
+        id: authData.user.id,
+        name: form.name,
+        phone: form.phone,
+        role: "client",
+        birth_date: form.birthDate || null, // Garante o salvamento no formato DATE (AAAA-MM-DD)
+      });
+
+      if (profileError) {
+        console.error("Erro ao salvar perfil público:", profileError.message);
+        // Opcional: você pode exibir o erro ou deixar passar se a Trigger do Supabase for o plano principal
+      }
     }
 
     router.push("/cliente");
