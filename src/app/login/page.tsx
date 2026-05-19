@@ -48,55 +48,61 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="min-h-screen bg-zinc-950 flex items-center justify-center px-4">
-      <div className="w-full max-w-sm">
-        <div className="text-center mb-8">
+    <main className="min-h-screen bg-zinc-950 flex flex-col items-center justify-center px-4 py-4">
+      <div className="w-full max-w-sm flex flex-col justify-center">
+        {/* REDUZIDO: Logo otimizada para manter consistência com o cadastro */}
+        <div className="text-center mb-4">
           <img
             src="/logo.png"
             alt="Aliança Barber Club"
-            className="h-48 w-auto mx-auto mix-blend-lighten"
+            className="h-40 w-auto mx-auto mix-blend-lighten"
           />
         </div>
 
+        {/* AJUSTADO: Padding e gaps menores para sumir com a rolagem */}
         <form
           onSubmit={handleLogin}
-          className="bg-zinc-900 rounded-2xl p-6 flex flex-col gap-4 border border-zinc-800"
+          className="bg-zinc-900 rounded-2xl p-5 flex flex-col gap-3 border border-zinc-800 shadow-2xl"
         >
-          <div className="flex flex-col gap-1">
-            <label className="text-zinc-400 text-sm font-medium">E-mail</label>
+          <div className="flex flex-col gap-0.5">
+            <label className="text-zinc-400 text-xs font-medium ml-0.5">
+              E-mail
+            </label>
             <input
               type="email"
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-3 text-white text-sm focus:outline-none focus:border-amber-400 transition-colors"
+              className="bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none focus:border-amber-400 transition-colors"
               placeholder="seu@email.com"
             />
           </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-zinc-400 text-sm font-medium">Senha</label>
+          <div className="flex flex-col gap-0.5">
+            <label className="text-zinc-400 text-xs font-medium ml-0.5">
+              Senha
+            </label>
             <input
               type="password"
               required
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-3 text-white text-sm focus:outline-none focus:border-amber-400 transition-colors"
+              className="bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none focus:border-amber-400 transition-colors"
               placeholder="••••••••"
             />
           </div>
 
-          {error && <p className="text-red-400 text-sm text-center">{error}</p>}
+          {error && <p className="text-red-400 text-xs text-center">{error}</p>}
 
           <button
             type="submit"
             disabled={loading}
-            className="bg-amber-400 text-zinc-950 font-bold py-3 rounded-lg hover:bg-amber-300 transition-colors disabled:opacity-50 mt-2"
+            className="bg-amber-400 text-zinc-950 font-black py-3 rounded-xl hover:bg-amber-300 transition-colors disabled:opacity-50 mt-1 uppercase text-xs tracking-wider"
           >
             {loading ? "Entrando..." : "Entrar"}
           </button>
         </form>
 
-        <p className="text-center text-zinc-500 text-sm mt-4">
+        <p className="text-center text-zinc-500 text-xs mt-3">
           Não tem conta?{" "}
           <Link
             href="/cadastro"
@@ -105,18 +111,19 @@ export default function LoginPage() {
             Cadastre-se
           </Link>
         </p>
+
         {/* ASSINATURA PREMIUM - PADRÃO @SGO */}
-        <div className="flex flex-col items-center justify-center gap-2 mt-8 pt-4 border-t border-zinc-900/40 animate-in fade-in duration-700">
-          <p className="text-[10px] tracking-widest text-zinc-600 font-bold uppercase">
+        <div className="flex flex-col items-center justify-center gap-1.5 mt-4 pt-3 border-t border-zinc-900/40">
+          <p className="text-[9px] tracking-widest text-zinc-600 font-bold uppercase">
             Powered by <span className="text-amber-500/80">@SGO</span>
           </p>
 
-          <div className="flex gap-3 text-[11px] font-bold text-zinc-500 uppercase tracking-tight">
+          <div className="flex gap-2 text-[10px] font-bold text-zinc-500 uppercase tracking-tight">
             <a
-              href="https://www.github.com/gsilvatech" // <--- Pluguado sua marca de dev!
+              href="https://www.github.com/gsilvatech"
               target="_blank"
               rel="noopener noreferrer"
-              className="hover:text-amber-400 transition-colors py-1.5 px-3 rounded-xl bg-zinc-900/30 border border-zinc-900 hover:border-zinc-800"
+              className="hover:text-amber-400 transition-colors py-1 px-2.5 rounded-lg bg-zinc-900/30 border border-zinc-900/60 hover:border-zinc-800"
             >
               GitHub
             </a>
@@ -124,7 +131,7 @@ export default function LoginPage() {
               href="https://www.instagram.com/sougabrieloficial"
               target="_blank"
               rel="noopener noreferrer"
-              className="hover:text-amber-400 transition-colors py-1.5 px-3 rounded-xl bg-zinc-900/30 border border-zinc-900 hover:border-zinc-800"
+              className="hover:text-amber-400 transition-colors py-1 px-2.5 rounded-lg bg-zinc-900/30 border border-zinc-900/60 hover:border-zinc-800"
             >
               Instagram
             </a>
