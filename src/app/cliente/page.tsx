@@ -62,9 +62,16 @@ export default function ClientePage() {
     time: string;
   } | null>(null);
 
+  // NOVO: Estados de controle para a Edição de Perfil
+  const [isEditingProfile, setIsEditingProfile] = useState(false);
+  const [editPhone, setEditPhone] = useState("");
+  const [editBirthDate, setEditBirthDate] = useState("");
+  const [loadingProfile, setLoadingProfile] = useState(false);
+
   // Função Universal para abrir Maps/Waze
   function handleOpenMaps() {
-    const endereco = "Aliança Barber Club, Volta Redonda, RJ";
+    const endereco =
+      "Aliança Barber Club, Rua 50, 65 - Vila Santa Cecília, Volta Redonda - RJ, 27261-040";
     const urlUniversal = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(endereco)}`;
     window.open(urlUniversal, "_blank");
   }
@@ -149,6 +156,12 @@ export default function ClientePage() {
       setBarbers(barb || []);
       setAppointments((upcomingAppts as any) || []);
       setPastAppointments((pastAppts as any) || []);
+
+      // NOVO: Sincroniza os dados locais dos inputs com o banco ao carregar
+      if (prof) {
+        setEditPhone(prof.phone || "");
+        setEditBirthDate(prof.birth_date || "");
+      }
     }
     load();
   }, []);
@@ -185,6 +198,39 @@ export default function ClientePage() {
     }
     loadSlots();
   }, [barberId, date]);
+
+  // NOVO: Função para salvar as alterações do perfil no Supabase
+  async function handleUpdateProfile() {
+    if (!profile) return;
+    setLoadingProfile(true);
+
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) return;
+
+    const { error } = await supabase
+      .from("profiles")
+      .update({
+        phone: editPhone,
+        birth_date: editBirthDate || null,
+      })
+      .eq("id", user.id);
+
+    if (!error) {
+      setProfile((prev: any) => ({
+        ...prev,
+        phone: editPhone,
+        birth_date: editBirthDate,
+      }));
+      setIsEditingProfile(false);
+      alert("Perfil atualizado com sucesso! 💎");
+    } else {
+      console.error(error);
+      alert("Erro ao atualizar o perfil. Verifique a conexão.");
+    }
+    setLoadingProfile(false);
+  }
 
   async function handleAgendar() {
     setLoading(true);
@@ -391,7 +437,6 @@ export default function ClientePage() {
                     <h4 className="font-bold text-sm text-zinc-100">
                       Aliança Barber Club
                     </h4>
-                    {/* NOVO: Endereço impresso na tela */}
                     <p className="text-zinc-400 text-xs mt-0.5">
                       Rua 50, Nº 65 - Vila Santa Cecília
                     </p>
@@ -656,42 +701,104 @@ export default function ClientePage() {
           </div>
         )}
 
-        {/* ================= TAB 5: PERFIL ================= */}
+        {/* ================= TAB 5: PERFIL DINÂMICO ================= */}
         {activeTab === "perfil" && (
           <div className="flex flex-col gap-6 animate-in fade-in duration-500">
-            <div>
-              <h2 className="text-xl font-bold italic">Seu Perfil</h2>
-              <p className="text-zinc-500 text-xs">
-                Suas informações cadastradas no clube.
-              </p>
+            <div className="flex justify-between items-center">
+              <div>
+                <h2 className="text-xl font-bold italic">Seu Perfil</h2>
+                <p className="text-zinc-500 text-xs">
+                  Suas informações cadastradas no clube.
+                </p>
+              </div>
+
+              {/* Botão de Alternância Inteligente */}
+              {!isEditingProfile && (
+                <button
+                  onClick={() => setIsEditingProfile(true)}
+                  className="text-xs font-bold text-amber-400 border border-zinc-800 hover:border-amber-400/40 px-4 py-2 rounded-xl transition-all"
+                >
+                  Editar Perfil
+                </button>
+              )}
             </div>
-            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 flex flex-col gap-4">
+
+            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 flex flex-col gap-4 shadow-[0_4px_20px_rgba(0,0,0,0.3)]">
+              {/* Nome completo (Bloqueado para integridade/LGPD) */}
               <div className="flex flex-col gap-1">
                 <span className="text-[10px] font-bold text-zinc-500 uppercase">
                   Nome completo
                 </span>
-                <span className="text-sm font-bold text-zinc-200">
+                <span className="text-sm font-bold text-zinc-300 bg-zinc-950/20 px-1 py-1 rounded">
                   {profile?.name || "Não informado"}
                 </span>
               </div>
+
+              {/* Campo WhatsApp */}
               <div className="flex flex-col gap-1 border-t border-zinc-800/60 pt-3">
                 <span className="text-[10px] font-bold text-zinc-500 uppercase">
                   WhatsApp
                 </span>
-                <span className="text-sm font-bold text-zinc-200">
-                  {profile?.phone || "Não informado"}
-                </span>
+                {isEditingProfile ? (
+                  <input
+                    type="text"
+                    value={editPhone}
+                    onChange={(e) => setEditPhone(e.target.value)}
+                    placeholder="(24) 99999-0000"
+                    className="bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-amber-400 mt-1 transition-colors"
+                  />
+                ) : (
+                  <span className="text-sm font-bold text-zinc-200">
+                    {profile?.phone || "Não informado"}
+                  </span>
+                )}
               </div>
+
+              {/* Campo Data de Nascimento */}
               <div className="flex flex-col gap-1 border-t border-zinc-800/60 pt-3">
                 <span className="text-[10px] font-bold text-zinc-500 uppercase">
                   Data de Nascimento (CRM)
                 </span>
-                <span className="text-sm font-bold text-amber-400">
-                  {profile?.birth_date
-                    ? profile.birth_date.split("-").reverse().join("/")
-                    : "Não informada"}
-                </span>
+                {isEditingProfile ? (
+                  <input
+                    type="date"
+                    value={editBirthDate}
+                    onChange={(e) => setEditBirthDate(e.target.value)}
+                    className="bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-2 text-sm text-amber-400 focus:outline-none focus:border-amber-400 mt-1 transition-colors [color-scheme:dark]"
+                  />
+                ) : (
+                  <span className="text-sm font-bold text-amber-400">
+                    {profile?.birth_date
+                      ? profile.birth_date.split("-").reverse().join("/")
+                      : "Não informada"}
+                  </span>
+                )}
               </div>
+
+              {/* Botões de Ação no modo edição */}
+              {isEditingProfile && (
+                <div className="flex gap-3 mt-2 border-t border-zinc-800/60 pt-4 animate-in zoom-in-95 duration-200">
+                  <button
+                    onClick={() => {
+                      // Cancela e reseta os inputs pro valor original do banco
+                      setEditPhone(profile?.phone || "");
+                      setEditBirthDate(profile?.birth_date || "");
+                      setIsEditingProfile(false);
+                    }}
+                    disabled={loadingProfile}
+                    className="flex-1 py-3 rounded-xl border border-zinc-800 text-zinc-400 hover:text-white text-xs font-bold uppercase tracking-wider"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={handleUpdateProfile}
+                    disabled={loadingProfile}
+                    className="flex-1 py-3 rounded-xl bg-amber-400 hover:bg-amber-300 text-zinc-950 text-xs font-black uppercase tracking-wider disabled:opacity-50 transition-colors shadow-[0_4px_15px_rgba(251,191,36,0.1)]"
+                  >
+                    {loadingProfile ? "Salvando..." : "Salvar"}
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         )}
