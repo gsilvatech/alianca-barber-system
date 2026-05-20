@@ -93,6 +93,7 @@ export default function ClientePage() {
       .update({ status: "cancelled" })
       .eq("id", cancelConfirm.id);
 
+    // ALTERAÇÃO: WhatsApp de Cancelamento Blindado
     if (!error) {
       setAppointments((prev) => prev.filter((a) => a.id !== cancelConfirm.id));
       const barber = barbers.find(
@@ -102,7 +103,9 @@ export default function ClientePage() {
         const msg = encodeURIComponent(
           `Olá ${cancelConfirm.barber}! Precisei cancelar meu agendamento de *${cancelConfirm.service}* do dia *${cancelConfirm.date}* às *${cancelConfirm.time}*. Nome: ${profile?.name}`,
         );
-        window.open(`https://wa.me/55${barber.whatsapp}?text=${msg}`, "_blank");
+        // Usa api.whatsapp.com e location.href para evitar bloqueio de pop-up
+        const urlCancel = `https://api.whatsapp.com/send?phone=55${barber.whatsapp}&text=${msg}`;
+        window.location.href = urlCancel;
       }
     }
     setCancelConfirm(null);
@@ -255,15 +258,15 @@ export default function ClientePage() {
         status: "confirmed",
       });
 
+      // ALTERAÇÃO: WhatsApp de Agendamento Blindado
       if (!error) {
         const barber = barbers.find((b) => b.id === barberId)!;
         const [y, m, d] = date.split("-");
 
-        const msg = encodeURIComponent(
-          `Olá ${barber.display_name}! Acabei de agendar um *${service}* para o dia *${d}/${m}/${y}* às *${time}*. Valor: R$ ${svcDetails.price}. Nome: ${profile?.name}`,
-        );
+        const textoMensagem = `Olá ${barber.display_name}! Acabei de agendar um *${service}* para o dia *${d}/${m}/${y}* às *${time}*. Valor: R$ ${svcDetails.price.toFixed(2).replace(".", ",")}. Nome: ${profile?.name}`;
 
-        window.open(`https://wa.me/55${barber.whatsapp}?text=${msg}`, "_blank");
+        // Usa api.whatsapp.com para maior compatibilidade mobile
+        const urlWhatsapp = `https://api.whatsapp.com/send?phone=55${barber.whatsapp}&text=${encodeURIComponent(textoMensagem)}`;
 
         setSuccess(true);
         setStep(1);
@@ -282,8 +285,12 @@ export default function ClientePage() {
           .order("date")
           .limit(5);
         setAppointments((updatedAppts as any) || []);
-
         setActiveTab("home");
+
+        // REDIRECIONAMENTO SEGURO: Evita bloqueadores de pop-up no celular
+        setTimeout(() => {
+          window.location.href = urlWhatsapp;
+        }, 100);
       }
     } catch (err) {
       console.error(err);
@@ -405,7 +412,7 @@ export default function ClientePage() {
                               a.id,
                               (a.barbers as any)?.display_name,
                               a.service,
-                              `${d}/${m}`,
+                              `${d}/{m}`,
                               a.time,
                             )
                           }
