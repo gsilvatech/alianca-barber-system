@@ -78,9 +78,17 @@ export default function LoginPage() {
             />
           </div>
           <div className="flex flex-col gap-0.5">
-            <label className="text-zinc-400 text-xs font-medium ml-0.5">
-              Senha
-            </label>
+            <div className="flex justify-between items-center ml-0.5">
+              <label className="text-zinc-400 text-xs font-medium">Senha</label>
+              {/* Trocamos o <Link> por um <button> com router.push para blindar contra o <form> */}
+              <button
+                type="button"
+                onClick={() => router.push("/esqueci-senha")}
+                className="text-[10px] text-amber-500 font-bold hover:underline bg-transparent border-none p-0"
+              >
+                Esqueceu a senha?
+              </button>
+            </div>
             <input
               type="password"
               required

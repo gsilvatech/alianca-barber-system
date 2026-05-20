@@ -35,7 +35,14 @@ export async function middleware(request: NextRequest) {
   const { data } = await supabase.auth.getUser();
   const user = data?.user || null;
   const path = request.nextUrl.pathname;
-  const publicRoutes = ["/login", "/cadastro"];
+
+  // ADICIONADO: As rotas de senha agora são públicas
+  const publicRoutes = [
+    "/login",
+    "/cadastro",
+    "/esqueci-senha",
+    "/atualizar-senha",
+  ];
 
   // 1. Redirecionamento para deslogados
   if (!user && !publicRoutes.includes(path)) {
@@ -48,12 +55,13 @@ export async function middleware(request: NextRequest) {
     // Verificação flexível (Aceita 'barber' ou 'barbers')
     const isBarber = role === "barbers" || role === "barber";
 
-    // LOG DE DEBUG (Aparece no dashboard da Vercel)
+    // LOG DE DEBUG
     console.log(
       `[DEBUG @gsilvatech] User: ${user.email} | Role: ${role} | Path: ${path}`,
     );
 
-    // Redirecionamento de rotas públicas (Login/Cadastro)
+    // Redirecionamento de rotas públicas (Login/Cadastro/Senha)
+    // Se o usuário já estiver logado, não tem por que estar nessas páginas
     if (publicRoutes.includes(path)) {
       const target = isBarber ? "/barbeiro" : "/cliente";
       return NextResponse.redirect(new URL(target, request.url));
