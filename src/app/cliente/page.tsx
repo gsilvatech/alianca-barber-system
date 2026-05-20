@@ -14,6 +14,7 @@ import {
   ChevronLeft,
   LogOut,
   AlertTriangle,
+  Edit2, // NOVO: Ícone para editar
 } from "lucide-react";
 
 type Barber = { id: string; display_name: string; whatsapp: string };
@@ -22,6 +23,7 @@ type Appointment = {
   service: string;
   date: string;
   time: string;
+  barber_id: string; // NOVO: Precisamos saber o ID do barbeiro para remarcar
   barbers: { display_name: string };
 };
 
@@ -36,6 +38,7 @@ export default function ClientePage() {
 
   // Dados do Banco
   const [profile, setProfile] = useState<{
+    id?: string;
     name: string;
     birth_date?: string;
     phone?: string;
@@ -46,7 +49,7 @@ export default function ClientePage() {
   const [blockedDates, setBlockedDates] = useState<string[]>([]);
   const [takenSlots, setTakenSlots] = useState<string[]>([]);
 
-  // Form state (Mantendo as suas variáveis)
+  // Form state do Novo Agendamento
   const [barberId, setBarberId] = useState("");
   const [service, setService] = useState("");
   const [date, setDate] = useState("");
@@ -62,11 +65,20 @@ export default function ClientePage() {
     time: string;
   } | null>(null);
 
-  // NOVO: Estados de controle para a Edição de Perfil
+  // Estados de controle para a Edição de Perfil
   const [isEditingProfile, setIsEditingProfile] = useState(false);
   const [editPhone, setEditPhone] = useState("");
   const [editBirthDate, setEditBirthDate] = useState("");
   const [loadingProfile, setLoadingProfile] = useState(false);
+
+  // NOVO: Estados para Remarcação de Agendamento do Cliente
+  const [editingAppointment, setEditingAppointment] =
+    useState<Appointment | null>(null);
+  const [editDate, setEditDate] = useState("");
+  const [editTime, setEditTime] = useState("");
+  const [isUpdating, setIsUpdating] = useState(false);
+  const [editBlockedDates, setEditBlockedDates] = useState<string[]>([]);
+  const [editTakenSlots, setEditTakenSlots] = useState<string[]>([]);
 
   // Função Universal para abrir Maps/Waze
   function handleOpenMaps() {
@@ -90,10 +102,9 @@ export default function ClientePage() {
     if (!cancelConfirm) return;
     const { error } = await supabase
       .from("appointments")
-      .update({ status: "cancelled" })
+      .update({ status: "canceled" })
       .eq("id", cancelConfirm.id);
 
-    // ALTERAÇÃO: WhatsApp de Cancelamento Blindado
     if (!error) {
       setAppointments((prev) => prev.filter((a) => a.id !== cancelConfirm.id));
       const barber = barbers.find(
@@ -103,7 +114,6 @@ export default function ClientePage() {
         const msg = encodeURIComponent(
           `Olá ${cancelConfirm.barber}! Precisei cancelar meu agendamento de *${cancelConfirm.service}* do dia *${cancelConfirm.date}* às *${cancelConfirm.time}*. Nome: ${profile?.name}`,
         );
-        // Usa api.whatsapp.com e location.href para evitar bloqueio de pop-up
         const urlCancel = `https://api.whatsapp.com/send?phone=55${barber.whatsapp}&text=${msg}`;
         window.location.href = urlCancel;
       }
@@ -132,13 +142,15 @@ export default function ClientePage() {
       ] = await Promise.all([
         supabase
           .from("profiles")
-          .select("name, birth_date, phone")
+          .select("id, name, birth_date, phone") // adicionado id
           .eq("id", user.id)
           .single(),
         supabase.from("barbers").select("id, display_name, whatsapp"),
         supabase
           .from("appointments")
-          .select("id, service, date, time, status, barbers(display_name)")
+          .select(
+            "id, service, date, time, status, barber_id, barbers(display_name)",
+          ) // adicionado barber_id
           .eq("client_id", user.id)
           .eq("status", "confirmed")
           .gte("date", todayStr)
@@ -147,7 +159,9 @@ export default function ClientePage() {
           .limit(5),
         supabase
           .from("appointments")
-          .select("id, service, date, time, status, barbers(display_name)")
+          .select(
+            "id, service, date, time, status, barber_id, barbers(display_name)",
+          )
           .eq("client_id", user.id)
           .eq("status", "confirmed")
           .lt("date", todayStr)
@@ -160,7 +174,6 @@ export default function ClientePage() {
       setAppointments((upcomingAppts as any) || []);
       setPastAppointments((pastAppts as any) || []);
 
-      // NOVO: Sincroniza os dados locais dos inputs com o banco ao carregar
       if (prof) {
         setEditPhone(prof.phone || "");
         setEditBirthDate(prof.birth_date || "");
@@ -169,6 +182,7 @@ export default function ClientePage() {
     load();
   }, []);
 
+  // Busca bloqueios do Barbeiro do Novo Agendamento
   useEffect(() => {
     if (!barberId) return;
     async function loadBlocked() {
@@ -181,6 +195,7 @@ export default function ClientePage() {
     loadBlocked();
   }, [barberId]);
 
+  // Busca Slots do Novo Agendamento
   useEffect(() => {
     if (!barberId || !date) return;
     async function loadSlots() {
@@ -202,7 +217,48 @@ export default function ClientePage() {
     loadSlots();
   }, [barberId, date]);
 
-  // NOVO: Função para salvar as alterações do perfil no Supabase
+  // NOVO: Busca bloqueios e Slots para o Modal de Remarcação
+  useEffect(() => {
+    if (!editingAppointment) return;
+    async function loadEditBlocked() {
+      const { data } = await supabase
+        .from("blocked_dates")
+        .select("date")
+        .eq("barber_id", editingAppointment!.barber_id);
+      setEditBlockedDates((data || []).map((d: any) => d.date));
+    }
+    loadEditBlocked();
+  }, [editingAppointment]);
+
+  useEffect(() => {
+    if (!editingAppointment || !editDate) return;
+    async function loadEditSlots() {
+      const { data } = await supabase
+        .from("appointments")
+        .select("time")
+        .eq("barber_id", editingAppointment!.barber_id)
+        .eq("date", editDate)
+        .eq("status", "confirmed");
+
+      const times = (data || []).map((d: any) => d.time);
+      const blocked: string[] = [];
+      times.forEach((t: string) => {
+        // Ignora a hora original deste agendamento, pois ele pode manter a mesma hora
+        if (
+          editDate === editingAppointment!.date &&
+          t === editingAppointment!.time
+        )
+          return;
+
+        blocked.push(t);
+        const idx = HOURS.indexOf(t);
+        if (idx >= 0 && idx + 1 < HOURS.length) blocked.push(HOURS[idx + 1]);
+      });
+      setEditTakenSlots(blocked);
+    }
+    loadEditSlots();
+  }, [editDate, editingAppointment]);
+
   async function handleUpdateProfile() {
     if (!profile) return;
     setLoadingProfile(true);
@@ -229,10 +285,59 @@ export default function ClientePage() {
       setIsEditingProfile(false);
       alert("Perfil atualizado com sucesso! 💎");
     } else {
-      console.error(error);
-      alert("Erro ao atualizar o perfil. Verifique a conexão.");
+      alert("Erro ao atualizar o perfil.");
     }
     setLoadingProfile(false);
+  }
+
+  // NOVO: Função para o cliente confirmar a Remarcação
+  async function handleReschedule() {
+    if (!editingAppointment || !editDate || !editTime) return;
+    setIsUpdating(true);
+
+    const { error } = await supabase
+      .from("appointments")
+      .update({
+        date: editDate,
+        time: editTime,
+      })
+      .eq("id", editingAppointment.id);
+
+    if (!error) {
+      const barber = barbers.find((b) => b.id === editingAppointment.barber_id);
+      if (barber) {
+        const [y, m, d] = editDate.split("-");
+        const msg = encodeURIComponent(
+          `Olá ${barber.display_name}! Remarquei meu agendamento de *${editingAppointment.service}* para o dia *${d}/${m}/${y}* às *${editTime}*. Nome: ${profile?.name}`,
+        );
+        const urlWhatsapp = `https://api.whatsapp.com/send?phone=55${barber.whatsapp}&text=${msg}`;
+
+        // Timeout para garantir que a interface seja limpa antes do redirect
+        setTimeout(() => {
+          window.location.href = urlWhatsapp;
+        }, 100);
+      }
+
+      // Atualiza a lista na tela
+      const todayStr = new Date().toISOString().split("T")[0];
+      const { data: updatedAppts } = await supabase
+        .from("appointments")
+        .select(
+          "id, service, date, time, status, barber_id, barbers(display_name)",
+        )
+        .eq("client_id", profile!.id)
+        .eq("status", "confirmed")
+        .gte("date", todayStr)
+        .order("date")
+        .order("time")
+        .limit(5);
+
+      setAppointments((updatedAppts as any) || []);
+      setEditingAppointment(null);
+    } else {
+      alert("Erro ao remarcar. Tente novamente.");
+    }
+    setIsUpdating(false);
   }
 
   async function handleAgendar() {
@@ -244,7 +349,7 @@ export default function ClientePage() {
       const svcDetails = SERVICES.find((s) => s.name === service);
 
       if (!svcDetails) {
-        alert("Erro ao identificar o serviço selecionado.");
+        alert("Erro ao identificar o serviço.");
         setLoading(false);
         return;
       }
@@ -258,14 +363,11 @@ export default function ClientePage() {
         status: "confirmed",
       });
 
-      // ALTERAÇÃO: WhatsApp de Agendamento Blindado
       if (!error) {
         const barber = barbers.find((b) => b.id === barberId)!;
         const [y, m, d] = date.split("-");
 
         const textoMensagem = `Olá ${barber.display_name}! Acabei de agendar um *${service}* para o dia *${d}/${m}/${y}* às *${time}*. Valor: R$ ${svcDetails.price.toFixed(2).replace(".", ",")}. Nome: ${profile?.name}`;
-
-        // Usa api.whatsapp.com para maior compatibilidade mobile
         const urlWhatsapp = `https://api.whatsapp.com/send?phone=55${barber.whatsapp}&text=${encodeURIComponent(textoMensagem)}`;
 
         setSuccess(true);
@@ -275,10 +377,11 @@ export default function ClientePage() {
         setDate("");
         setTime("");
 
-        // Atualiza a lista local de confirmados
         const { data: updatedAppts } = await supabase
           .from("appointments")
-          .select("id, service, date, time, barbers(display_name)")
+          .select(
+            "id, service, date, time, status, barber_id, barbers(display_name)",
+          )
           .eq("client_id", user!.id)
           .eq("status", "confirmed")
           .gte("date", new Date().toISOString().split("T")[0])
@@ -287,7 +390,6 @@ export default function ClientePage() {
         setAppointments((updatedAppts as any) || []);
         setActiveTab("home");
 
-        // REDIRECIONAMENTO SEGURO: Evita bloqueadores de pop-up no celular
         setTimeout(() => {
           window.location.href = urlWhatsapp;
         }, 100);
@@ -300,10 +402,17 @@ export default function ClientePage() {
   }
 
   const minDate = new Date().toISOString().split("T")[0];
+
   const isDateBlocked = (d: string) => {
     if (!d) return false;
     const day = new Date(d + "T12:00:00").getDay();
     return day === 0 || blockedDates.includes(d);
+  };
+
+  const isEditDateBlocked = (d: string) => {
+    if (!d) return false;
+    const day = new Date(d + "T12:00:00").getDay();
+    return day === 0 || editBlockedDates.includes(d);
   };
 
   async function handleLogout() {
@@ -358,7 +467,6 @@ export default function ClientePage() {
 
             <DailyWord />
 
-            {/* Toast sucesso se houver */}
             {success && (
               <div className="bg-emerald-900/40 border border-emerald-600 rounded-xl px-4 py-3 text-emerald-400 text-sm font-medium flex items-center gap-2">
                 ✓ Agendamento confirmado! O WhatsApp do barbeiro foi aberto.
@@ -376,7 +484,7 @@ export default function ClientePage() {
               <h3 className="text-[10px] font-bold text-zinc-500 uppercase tracking-[0.2em] mb-3">
                 Seus Próximos Agendamentos
               </h3>
-              <div className="flex flex-col gap-2">
+              <div className="flex flex-col gap-3">
                 {appointments.length === 0 ? (
                   <div className="bg-zinc-900 border border-zinc-800 rounded-2xl px-4 py-6 text-center text-zinc-500 text-sm italic">
                     Nenhum agendamento marcado. Clique no "+" abaixo para
@@ -388,38 +496,55 @@ export default function ClientePage() {
                     return (
                       <div
                         key={a.id}
-                        className="bg-zinc-900 border border-zinc-800 rounded-2xl px-4 py-4 flex items-center gap-4 shadow-[0_4px_20px_rgba(0,0,0,0.2)]"
+                        className="bg-zinc-900 border border-zinc-800 rounded-2xl px-4 py-4 flex flex-col gap-3 shadow-[0_4px_20px_rgba(0,0,0,0.2)]"
                       >
-                        <div className="bg-amber-400 text-zinc-950 rounded-xl px-3 py-2 text-center min-w-[56px]">
-                          <div className="text-xs font-bold leading-none">
-                            {d}/{m}
+                        <div className="flex items-center gap-4">
+                          <div className="bg-amber-400 text-zinc-950 rounded-xl px-3 py-2 text-center min-w-[56px]">
+                            <div className="text-xs font-bold leading-none">
+                              {d}/{m}
+                            </div>
+                            <div className="text-base font-black mt-1 leading-none">
+                              {a.time}
+                            </div>
                           </div>
-                          <div className="text-base font-black mt-1 leading-none">
-                            {a.time}
+                          <div className="flex-1">
+                            <div className="font-bold text-zinc-100 text-sm">
+                              {a.service}
+                            </div>
+                            <div className="text-zinc-500 text-xs mt-0.5">
+                              {(a.barbers as any)?.display_name}
+                            </div>
                           </div>
                         </div>
-                        <div className="flex-1">
-                          <div className="font-bold text-zinc-100 text-sm">
-                            {a.service}
-                          </div>
-                          <div className="text-zinc-500 text-xs mt-0.5">
-                            {(a.barbers as any)?.display_name}
-                          </div>
+
+                        {/* NOVO: Botões agrupados horizontalmente de Remarcar e Cancelar */}
+                        <div className="flex gap-2 border-t border-zinc-800/60 pt-3">
+                          <button
+                            onClick={() => {
+                              setEditingAppointment(a);
+                              setEditDate(a.date);
+                              setEditTime(a.time);
+                            }}
+                            className="flex-1 flex items-center justify-center gap-1.5 text-xs text-amber-400 hover:text-amber-300 bg-zinc-950/30 hover:bg-zinc-800 transition-colors font-bold border border-zinc-800 px-2 py-2 rounded-lg"
+                          >
+                            <Edit2 size={14} />
+                            Remarcar
+                          </button>
+                          <button
+                            onClick={() =>
+                              cancelAppointment(
+                                a.id,
+                                (a.barbers as any)?.display_name,
+                                a.service,
+                                `${d}/${m}`,
+                                a.time,
+                              )
+                            }
+                            className="flex-1 flex items-center justify-center gap-1.5 text-xs text-red-400 hover:text-red-300 bg-zinc-950/30 hover:bg-zinc-800 transition-colors font-bold border border-zinc-800 px-2 py-2 rounded-lg"
+                          >
+                            Cancelar
+                          </button>
                         </div>
-                        <button
-                          onClick={() =>
-                            cancelAppointment(
-                              a.id,
-                              (a.barbers as any)?.display_name,
-                              a.service,
-                              `${d}/{m}`,
-                              a.time,
-                            )
-                          }
-                          className="text-xs text-red-400 hover:text-red-300 transition-colors font-medium border border-zinc-800 px-2.5 py-1.5 rounded-lg hover:border-red-900/40"
-                        >
-                          Cancelar
-                        </button>
                       </div>
                     );
                   })
@@ -504,7 +629,6 @@ export default function ClientePage() {
         {/* ================= TAB 3: AGENDAMENTO STEPPER ================= */}
         {activeTab === "agendar" && (
           <div className="flex flex-col gap-6 animate-in slide-in-from-bottom-4 duration-500">
-            {/* Header com Botão Voltar Inteligente */}
             <div className="flex items-center gap-2">
               {step > 1 && (
                 <button
@@ -522,7 +646,6 @@ export default function ClientePage() {
               </div>
             </div>
 
-            {/* Linhas de progresso */}
             <div className="flex gap-2 mb-2">
               {["Barbeiro", "Serviço", "Data e hora"].map((label, i) => (
                 <div
@@ -533,7 +656,6 @@ export default function ClientePage() {
             </div>
 
             <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 flex flex-col gap-5 shadow-[0_10px_30px_rgba(0,0,0,0.3)]">
-              {/* Step 1: Barbeiro */}
               {step === 1 && (
                 <div className="flex flex-col gap-3 animate-in fade-in duration-300">
                   <label className="text-zinc-400 text-xs font-bold uppercase tracking-wider">
@@ -556,7 +678,6 @@ export default function ClientePage() {
                 </div>
               )}
 
-              {/* Step 2: Serviço */}
               {step === 2 && (
                 <div className="flex flex-col gap-3 animate-in fade-in duration-300">
                   <label className="text-zinc-400 text-xs font-bold uppercase tracking-wider">
@@ -588,7 +709,6 @@ export default function ClientePage() {
                 </div>
               )}
 
-              {/* Step 3: Data e Hora */}
               {step === 3 && (
                 <div className="flex flex-col gap-4 animate-in fade-in duration-300">
                   <div className="flex flex-col gap-2">
@@ -637,7 +757,6 @@ export default function ClientePage() {
                 </div>
               )}
 
-              {/* Bloco de Confirmação Final dentro do formulário estruturado */}
               {barberId &&
                 service &&
                 date &&
@@ -718,8 +837,6 @@ export default function ClientePage() {
                   Suas informações cadastradas no clube.
                 </p>
               </div>
-
-              {/* Botão de Alternância Inteligente */}
               {!isEditingProfile && (
                 <button
                   onClick={() => setIsEditingProfile(true)}
@@ -731,7 +848,6 @@ export default function ClientePage() {
             </div>
 
             <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 flex flex-col gap-4 shadow-[0_4px_20px_rgba(0,0,0,0.3)]">
-              {/* Nome completo (Bloqueado para integridade/LGPD) */}
               <div className="flex flex-col gap-1">
                 <span className="text-[10px] font-bold text-zinc-500 uppercase">
                   Nome completo
@@ -741,7 +857,6 @@ export default function ClientePage() {
                 </span>
               </div>
 
-              {/* Campo WhatsApp */}
               <div className="flex flex-col gap-1 border-t border-zinc-800/60 pt-3">
                 <span className="text-[10px] font-bold text-zinc-500 uppercase">
                   WhatsApp
@@ -761,7 +876,6 @@ export default function ClientePage() {
                 )}
               </div>
 
-              {/* Campo Data de Nascimento */}
               <div className="flex flex-col gap-1 border-t border-zinc-800/60 pt-3">
                 <span className="text-[10px] font-bold text-zinc-500 uppercase">
                   Data de Nascimento (CRM)
@@ -782,12 +896,10 @@ export default function ClientePage() {
                 )}
               </div>
 
-              {/* Botões de Ação no modo edição */}
               {isEditingProfile && (
                 <div className="flex gap-3 mt-2 border-t border-zinc-800/60 pt-4 animate-in zoom-in-95 duration-200">
                   <button
                     onClick={() => {
-                      // Cancela e reseta os inputs pro valor original do banco
                       setEditPhone(profile?.phone || "");
                       setEditBirthDate(profile?.birth_date || "");
                       setIsEditingProfile(false);
@@ -810,6 +922,87 @@ export default function ClientePage() {
           </div>
         )}
       </div>
+
+      {/* NOVO: Modal de Edição (Remarcação do Cliente) */}
+      {editingAppointment && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 px-4 backdrop-blur-sm">
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 w-full max-w-sm flex flex-col gap-5">
+            <div>
+              <h3 className="font-bold text-lg italic text-amber-400">
+                Remarcar Horário
+              </h3>
+              <p className="text-zinc-500 text-xs mt-1">
+                Serviço:{" "}
+                <span className="text-white font-medium">
+                  {editingAppointment.service}
+                </span>
+              </p>
+            </div>
+
+            <div className="flex flex-col gap-4">
+              <div className="flex flex-col gap-1.5">
+                <label className="text-zinc-400 text-xs font-bold uppercase tracking-wider">
+                  Nova Data
+                </label>
+                <input
+                  type="date"
+                  min={minDate}
+                  value={editDate}
+                  onChange={(e) => {
+                    const d = e.target.value;
+                    if (!isEditDateBlocked(d)) {
+                      setEditDate(d);
+                      setEditTime(""); // Reseta a hora ao mudar o dia
+                    } else {
+                      alert("Esta data está bloqueada ou é domingo.");
+                    }
+                  }}
+                  className="bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-amber-400 transition-colors [color-scheme:dark]"
+                />
+              </div>
+
+              {editDate && !isEditDateBlocked(editDate) && (
+                <div className="flex flex-col gap-1.5 animate-in zoom-in-95 duration-200">
+                  <label className="text-zinc-400 text-xs font-bold uppercase tracking-wider">
+                    Novo Horário
+                  </label>
+                  <div className="grid grid-cols-4 gap-2 max-h-48 overflow-y-auto pr-2 custom-scrollbar">
+                    {HOURS.map((h) => {
+                      const blocked = editTakenSlots.includes(h);
+                      return (
+                        <button
+                          key={h}
+                          disabled={blocked}
+                          onClick={() => setEditTime(h)}
+                          className={`py-2.5 rounded-xl text-xs font-bold border transition-all ${editTime === h ? "bg-amber-400 text-zinc-950 border-amber-400" : blocked ? "bg-zinc-900 border-zinc-800 text-zinc-700 cursor-not-allowed" : "bg-zinc-800 border-zinc-700 text-white hover:border-amber-400"}`}
+                        >
+                          {h}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="flex gap-3 mt-2 border-t border-zinc-800 pt-4">
+              <button
+                onClick={() => setEditingAppointment(null)}
+                className="flex-1 py-3 rounded-xl border border-zinc-700 text-zinc-400 hover:text-white transition-colors font-bold text-xs uppercase tracking-wider"
+              >
+                Voltar
+              </button>
+              <button
+                onClick={handleReschedule}
+                disabled={!editDate || !editTime || isUpdating}
+                className="flex-1 py-3 rounded-xl bg-amber-400 hover:bg-amber-300 transition-colors text-zinc-950 font-black text-xs uppercase tracking-wider disabled:opacity-50 shadow-[0_4px_15px_rgba(251,191,36,0.15)]"
+              >
+                {isUpdating ? "Salvando..." : "Confirmar"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal de Cancelamento (Global da tela) */}
       {cancelConfirm && (
@@ -860,8 +1053,6 @@ export default function ClientePage() {
       <nav className="fixed bottom-0 left-0 right-0 bg-zinc-900/80 backdrop-blur-xl border-t border-zinc-800/50 px-4 pt-3 pb-8 flex justify-between items-center z-50">
         <NavButton icon={HomeIcon} label="Início" tabId="home" />
         <NavButton icon={Clock} label="Histórico" tabId="historico" />
-
-        {/* Central Plus Button */}
         <button
           onClick={() => {
             setActiveTab("agendar");
@@ -871,7 +1062,6 @@ export default function ClientePage() {
         >
           <PlusCircle size={28} strokeWidth={2.5} />
         </button>
-
         <NavButton icon={Award} label="Fidelidade" tabId="fidelidade" />
         <NavButton icon={User} label="Perfil" tabId="perfil" />
       </nav>
