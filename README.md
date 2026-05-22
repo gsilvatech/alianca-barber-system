@@ -96,7 +96,7 @@ O banco de dados relacional PostgreSQL no Supabase foi modelado da seguinte form
 1. Clone o repositório:
 
    ```bash
-   git clone [https://github.com/seu-usuario/alianca-barber-club.git](https://github.com/seu-usuario/alianca-barber-club.git)
+   git clone [https://github.com/gsilvatech/alianca-barber-club.git](https://github.com/gsilvatech/alianca-barber-club.git)
 
    ```
 
