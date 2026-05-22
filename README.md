@@ -108,8 +108,11 @@ O banco de dados relacional PostgreSQL no Supabase foi modelado da seguinte form
    ```
 
 3. Configure as variáveis de ambiente. Crie um arquivo **.env.local** na raiz do projeto e adicione suas credenciais do Supabase:
+
+   ```
    NEXT_PUBLIC_SUPABASE_URL=sua_url_do_supabase
    NEXT_PUBLIC_SUPABASE_ANON_KEY=sua_chave_anon_do_supabase
+   ```
 
 4. Inicie o servidor de desenvolvimento:
 
