@@ -6,7 +6,7 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-007ACC?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 
 > **Status do Projeto:** 🚀 MVP Funcional em Produção (Versão 1.0)
-> **Link do App Vivo:** [Acesse a aplicação aqui](https://alianca-barber-club-swart.vercel.app/)
+> **Link do App:** [Acesse a aplicação aqui](https://alianca-barber-club-swart.vercel.app/)
 
 ---
 
