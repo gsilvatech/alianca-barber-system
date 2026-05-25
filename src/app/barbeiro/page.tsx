@@ -12,9 +12,32 @@ import {
   PlusCircle,
   LogOut,
   Trash2,
-  Edit2, // NOVO: Ícone para edição
-  XCircle, // NOVO: Ícone para cancelamento
+  Edit2,
+  XCircle,
 } from "lucide-react";
+
+// --- MOTOR DE TEMPO SGO ---
+const timeToMinutes = (timeStr: string): number => {
+  const [hours, minutes] = timeStr.split(":").map(Number);
+  return hours * 60 + minutes;
+};
+
+// Gera horários de 10 em 10 minutos das 08h às 18h
+const generateHours = () => {
+  const hours = [];
+  for (let h = 9; h <= 18; h++) {
+    for (let m = 0; m < 60; m += 10) {
+      if (h === 18 && m > 0) break;
+      const hh = h.toString().padStart(2, "0");
+      const mm = m.toString().padStart(2, "0");
+      hours.push(`${hh}:${mm}`);
+    }
+  }
+  return hours;
+};
+
+const HOURS = generateHours();
+// --------------------------
 
 type Appointment = {
   id: string;
@@ -45,28 +68,6 @@ export default function BarbeiroPage() {
 
   const [isFullDay, setIsFullDay] = useState(true);
   const [selectedTime, setSelectedTime] = useState("");
-  const HOURS = [
-    "08:00",
-    "08:30",
-    "09:00",
-    "09:30",
-    "10:00",
-    "10:30",
-    "11:00",
-    "11:30",
-    "13:00",
-    "13:30",
-    "14:00",
-    "14:30",
-    "15:00",
-    "15:30",
-    "16:00",
-    "16:30",
-    "17:00",
-    "17:30",
-    "18:00",
-    "18:30",
-  ];
 
   const [activeTab, setActiveTab] = useState<
     "home" | "agenda" | "financeiro" | "crm" | "novo"
@@ -80,23 +81,21 @@ export default function BarbeiroPage() {
   monthEnd.setDate(monthEnd.getDate() + 30);
   const monthEndStr = monthEnd.toISOString().split("T")[0];
 
-  // Inicia o formulário manual com a data de hoje por padrão
+  // Estados Formulário Manual
   const [manualCustomer, setManualCustomer] = useState("");
   const [manualService, setManualService] = useState("");
   const [manualPrice, setManualPrice] = useState("");
   const [manualDate, setManualDate] = useState(todayStr);
   const [manualTime, setManualTime] = useState("");
   const [isSaving, setIsSaving] = useState(false);
+  const [manualTakenSlots, setManualTakenSlots] = useState<string[]>([]); // NOVO: Controle de colisão do select manual
 
-  // NOVO: Estados para Remarcação
+  // Estados para Remarcação
   const [editingAppointment, setEditingAppointment] =
     useState<Appointment | null>(null);
   const [editDate, setEditDate] = useState("");
   const [editTime, setEditTime] = useState("");
   const [isUpdating, setIsUpdating] = useState(false);
-
-  // NOVO: Estados para Bloqueios Dinâmicos durante Edição
-  const [editBlockedDates, setEditBlockedDates] = useState<string[]>([]);
   const [editTakenSlots, setEditTakenSlots] = useState<string[]>([]);
 
   async function loadAppts() {
@@ -151,7 +150,6 @@ export default function BarbeiroPage() {
         .eq("id", user.id)
         .single();
 
-      // Ajustado para admin poder acessar também
       if (
         prof?.role !== "barbers" &&
         prof?.role !== "barber" &&
@@ -178,41 +176,121 @@ export default function BarbeiroPage() {
     if (barberId) loadAppts();
   }, [barberId, tab]);
 
-  // NOVO: Carregar bloqueios para a data de edição (igual ao do cliente)
+  // --- O ADMIN PASS (REMARCAÇÃO) ---
   useEffect(() => {
-    if (!barberId || !editDate) return;
+    if (!barberId || !editDate || !editingAppointment) return;
+
     async function loadEditSlots() {
       const { data } = await supabase
         .from("appointments")
-        .select("time")
+        .select("time, service")
         .eq("barber_id", barberId)
         .eq("date", editDate)
         .eq("status", "confirmed");
 
-      const times = (data || []).map((d: any) => d.time);
+      const existingAppts = data || [];
       const blocked: string[] = [];
-      times.forEach((t: string) => {
-        // Não bloqueia o slot que o cliente JÁ ocupa se a data for a mesma
+
+      // Descobre a duração do agendamento que está sendo editado
+      let actualServiceName = editingAppointment!.service;
+      if (actualServiceName.startsWith("MANUAL:")) {
+        actualServiceName = actualServiceName.split(" - ")[1] || "Corte";
+      }
+      const selectedSvc = SERVICES.find((s) => s.name === actualServiceName);
+      const duration = selectedSvc?.duration || 30;
+
+      HOURS.forEach((slot) => {
+        const slotStart = timeToMinutes(slot);
+        const slotEnd = slotStart + duration;
+
+        // Ignora a hora original deste agendamento para não bloquear a si mesmo
         if (
-          editingAppointment &&
-          editDate === editingAppointment.date &&
-          t === editingAppointment.time
+          editDate === editingAppointment!.date &&
+          slot === editingAppointment!.time
         ) {
           return;
         }
-        blocked.push(t);
-        const idx = HOURS.indexOf(t);
-        if (idx >= 0 && idx + 1 < HOURS.length) blocked.push(HOURS[idx + 1]);
+
+        // --- COLISÃO MATEMÁTICA PURA (Sem travas de almoço ou fim de turno) ---
+        const hasConflict = existingAppts.some((appt: any) => {
+          if (
+            appt.time === editingAppointment!.time &&
+            editDate === editingAppointment!.date
+          )
+            return false;
+
+          const apptStart = timeToMinutes(appt.time);
+          let apptSvcName = appt.service;
+
+          if (apptSvcName.startsWith("MANUAL:")) {
+            apptSvcName = apptSvcName.split(" - ")[1] || "Corte";
+          }
+          const apptSvc = SERVICES.find((s) => s.name === apptSvcName);
+          const apptDuration = apptSvc?.duration || 30; // Bloqueios rápidos caem no fallback de 30
+          const apptEnd = apptStart + apptDuration;
+
+          return slotStart < apptEnd && slotEnd > apptStart;
+        });
+
+        if (hasConflict) {
+          blocked.push(slot);
+        }
       });
       setEditTakenSlots(blocked);
     }
     loadEditSlots();
   }, [barberId, editDate, editingAppointment]);
 
+  // --- O ADMIN PASS (NOVO AGENDAMENTO MANUAL) ---
+  useEffect(() => {
+    if (!barberId || !manualDate || !manualService) {
+      setManualTakenSlots([]);
+      return;
+    }
+
+    async function loadManualSlots() {
+      const { data } = await supabase
+        .from("appointments")
+        .select("time, service")
+        .eq("barber_id", barberId)
+        .eq("date", manualDate)
+        .eq("status", "confirmed");
+
+      const existingAppts = data || [];
+      const blocked: string[] = [];
+
+      const selectedSvc = SERVICES.find((s) => s.name === manualService);
+      const duration = selectedSvc?.duration || 30;
+
+      HOURS.forEach((slot) => {
+        const slotStart = timeToMinutes(slot);
+        const slotEnd = slotStart + duration;
+
+        const hasConflict = existingAppts.some((appt: any) => {
+          const apptStart = timeToMinutes(appt.time);
+          let apptSvcName = appt.service;
+          if (apptSvcName.startsWith("MANUAL:")) {
+            apptSvcName = apptSvcName.split(" - ")[1] || "Corte";
+          }
+          const apptSvc = SERVICES.find((s) => s.name === apptSvcName);
+          const apptDuration = apptSvc?.duration || 30;
+          const apptEnd = apptStart + apptDuration;
+
+          return slotStart < apptEnd && slotEnd > apptStart;
+        });
+
+        if (hasConflict) {
+          blocked.push(slot);
+        }
+      });
+      setManualTakenSlots(blocked);
+    }
+    loadManualSlots();
+  }, [barberId, manualDate, manualService]);
+
   const isEditDateBlocked = (d: string) => {
     if (!d) return false;
     const day = new Date(d + "T12:00:00").getDay();
-    // Bloqueia domingos e datas bloqueadas do barbeiro
     return day === 0 || blockedDates.some((b) => b.date === d);
   };
 
@@ -246,7 +324,6 @@ export default function BarbeiroPage() {
       const motivoFinal = newBlockReason
         ? `BLOQUEIO: ${newBlockReason}`
         : "BLOQUEIO INDISPONÍVEL";
-
       const { error } = await supabase.from("appointments").insert({
         barber_id: barberId,
         client_id: profile?.id,
@@ -281,7 +358,6 @@ export default function BarbeiroPage() {
     }
   }
 
-  // NOVO: Função para o Barbeiro Cancelar
   async function handleCancelByBarber(id: string) {
     if (
       !confirm(
@@ -304,14 +380,12 @@ export default function BarbeiroPage() {
     }
   }
 
-  // NOVO: Função para iniciar a edição
   function openEditModal(appt: Appointment) {
     setEditingAppointment(appt);
     setEditDate(appt.date);
     setEditTime(appt.time);
   }
 
-  // NOVO: Função para salvar a remarcação
   async function handleReschedule() {
     if (!editingAppointment || !editDate || !editTime) return;
     setIsUpdating(true);
@@ -335,7 +409,6 @@ export default function BarbeiroPage() {
     setIsUpdating(false);
   }
 
-  // FUNÇÕES AUXILIARES: Tratam o texto da string 'MANUAL: Cliente - Serviço'
   function renderCustomerName(a: Appointment) {
     if (a.service?.startsWith("MANUAL:")) {
       return a.service.split(" - ")[0].replace("MANUAL: ", "");
@@ -371,7 +444,7 @@ export default function BarbeiroPage() {
       setManualCustomer("");
       setManualService("");
       setManualPrice("");
-      setManualDate(todayStr); // Reseta voltando para hoje
+      setManualDate(todayStr);
       setManualTime("");
       setActiveTab("agenda");
       loadAppts();
@@ -432,7 +505,7 @@ export default function BarbeiroPage() {
                 ) : (
                   today.map((a) => {
                     const isBlock = a.service.startsWith("BLOQUEIO");
-                    const isCanceled = a.status === "canceled"; // Ou "canceled" se mudou no banco
+                    const isCanceled = a.status === "canceled";
 
                     return (
                       <div
@@ -462,7 +535,6 @@ export default function BarbeiroPage() {
                             </div>
                           </div>
 
-                          {/* NOVO: Botões de ação apenas se não for bloqueio e não estiver cancelado */}
                           {!isBlock && !isCanceled && (
                             <div className="flex items-center gap-2 border-l border-zinc-800 pl-3">
                               <button
@@ -538,7 +610,6 @@ export default function BarbeiroPage() {
                           </div>
                         </div>
 
-                        {/* NOVO: Botões de ação na visão Semanal */}
                         {!isBlock && (
                           <div className="flex items-center gap-2 border-l border-zinc-800 pl-3">
                             <button
@@ -598,12 +669,12 @@ export default function BarbeiroPage() {
                   </button>
                 </div>
                 {!isFullDay && (
-                  <div className="grid grid-cols-4 gap-2 animate-in zoom-in-95 duration-200">
+                  <div className="grid grid-cols-4 gap-2 max-h-48 overflow-y-auto pr-2 custom-scrollbar animate-in zoom-in-95 duration-200">
                     {HOURS.map((h) => (
                       <button
                         key={h}
                         onClick={() => setSelectedTime(h)}
-                        className={`py-2 rounded-lg text-[10px] font-bold border ${selectedTime === h ? "bg-amber-400 border-amber-400 text-zinc-950" : "bg-zinc-800 border-zinc-700 text-zinc-400"}`}
+                        className={`py-2 rounded-lg text-[10px] font-bold border transition-all ${selectedTime === h ? "bg-amber-400 border-amber-400 text-zinc-950" : "bg-zinc-800 border-zinc-700 text-zinc-400"}`}
                       >
                         {h}
                       </button>
@@ -656,49 +727,6 @@ export default function BarbeiroPage() {
                       </button>
                     </div>
                   ))}
-                </div>
-              )}
-
-              {week.filter((a) => a.service.startsWith("BLOQUEIO")).length >
-                0 && (
-                <div className="mt-6 flex flex-col gap-2">
-                  <p className="text-[10px] font-bold text-zinc-600 uppercase mb-2">
-                    Horários Bloqueados
-                  </p>
-                  {week
-                    .filter((a) => a.service.startsWith("BLOQUEIO"))
-                    .map((a) => (
-                      <div
-                        key={a.id}
-                        className="flex items-center justify-between bg-zinc-900/50 border border-zinc-800 rounded-2xl px-4 py-3"
-                      >
-                        <div className="flex flex-col">
-                          <div className="flex items-center gap-2">
-                            <span className="text-sm font-black text-amber-400 italic">
-                              {a.date
-                                .split("-")
-                                .reverse()
-                                .slice(0, 2)
-                                .join("/")}
-                            </span>
-                            <span className="text-sm font-black text-white">
-                              {a.time}
-                            </span>
-                          </div>
-                          <span className="text-zinc-500 text-[10px] font-bold uppercase">
-                            {a.service
-                              .replace("BLOQUEIO: ", "")
-                              .replace("BLOQUEIO INDISPONÍVEL", "Indisponível")}
-                          </span>
-                        </div>
-                        <button
-                          onClick={() => deleteAppointment(a.id)}
-                          className="text-zinc-600 hover:text-red-400 text-[10px] font-black uppercase border border-zinc-800 px-3 py-1 rounded-lg"
-                        >
-                          Remover
-                        </button>
-                      </div>
-                    ))}
                 </div>
               )}
             </section>
@@ -786,7 +814,22 @@ export default function BarbeiroPage() {
 
               <div className="flex flex-col gap-2">
                 <label className="text-[10px] font-black text-zinc-500 uppercase ml-1">
-                  Horário
+                  Data
+                </label>
+                <input
+                  type="date"
+                  value={manualDate}
+                  onChange={(e) => {
+                    setManualDate(e.target.value);
+                    setManualTime(""); // Reseta a hora ao mudar o dia
+                  }}
+                  className="bg-zinc-800 border border-zinc-700 rounded-2xl px-4 py-3 text-white focus:outline-none w-full [color-scheme:dark]"
+                />
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <label className="text-[10px] font-black text-zinc-500 uppercase ml-1">
+                  Horário Disponível
                 </label>
                 <select
                   value={manualTime}
@@ -794,28 +837,20 @@ export default function BarbeiroPage() {
                   className="bg-zinc-800 border border-zinc-700 rounded-2xl px-4 py-3 text-white focus:outline-none appearance-none w-full"
                 >
                   <option value="">Selecionar...</option>
-                  {HOURS.map((hour, index) => (
-                    <option key={index} value={hour}>
-                      {hour}
-                    </option>
-                  ))}
+                  {/* NOVO: Aqui os horários que baterem (colisão) sumirão automaticamente! */}
+                  {HOURS.filter((h) => !manualTakenSlots.includes(h)).map(
+                    (hour, index) => (
+                      <option key={index} value={hour}>
+                        {hour}
+                      </option>
+                    ),
+                  )}
                 </select>
-              </div>
-              <div className="flex flex-col gap-2">
-                <label className="text-[10px] font-black text-zinc-500 uppercase ml-1">
-                  Data
-                </label>
-                <input
-                  type="date"
-                  value={manualDate}
-                  onChange={(e) => setManualDate(e.target.value)}
-                  className="bg-zinc-800 border border-zinc-700 rounded-2xl px-4 py-3 text-white focus:outline-none w-full [color-scheme:dark]"
-                />
               </div>
 
               <button
                 onClick={handleManualSchedule}
-                disabled={isSaving}
+                disabled={isSaving || !manualTime}
                 className="mt-4 bg-amber-500 hover:bg-amber-600 disabled:bg-zinc-700 text-black font-black py-4 rounded-2xl uppercase tracking-widest transition-all active:scale-95"
               >
                 {isSaving ? "Agendando..." : "Confirmar Agendamento"}
@@ -825,13 +860,12 @@ export default function BarbeiroPage() {
         )}
       </div>
 
-      {/* NOVO: Modal de Edição (Remarcação) */}
       {editingAppointment && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 px-4 backdrop-blur-sm">
           <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 w-full max-w-sm flex flex-col gap-5">
             <div>
               <h3 className="font-bold text-lg italic text-amber-400">
-                Remarcar Horário
+                Remarcar Horário (Admin)
               </h3>
               <p className="text-zinc-500 text-xs mt-1">
                 Cliente:{" "}
@@ -854,7 +888,7 @@ export default function BarbeiroPage() {
                     const d = e.target.value;
                     if (!isEditDateBlocked(d)) {
                       setEditDate(d);
-                      setEditTime(""); // Reseta a hora ao mudar o dia
+                      setEditTime("");
                     } else {
                       alert("Esta data está bloqueada ou é domingo.");
                     }
@@ -869,19 +903,17 @@ export default function BarbeiroPage() {
                     Novo Horário
                   </label>
                   <div className="grid grid-cols-4 gap-2 max-h-48 overflow-y-auto pr-2 custom-scrollbar">
-                    {HOURS.map((h) => {
-                      const blocked = editTakenSlots.includes(h);
-                      return (
+                    {HOURS.filter((h) => !editTakenSlots.includes(h)).map(
+                      (h) => (
                         <button
                           key={h}
-                          disabled={blocked}
                           onClick={() => setEditTime(h)}
-                          className={`py-2.5 rounded-xl text-xs font-bold border transition-all ${editTime === h ? "bg-amber-400 text-zinc-950 border-amber-400" : blocked ? "bg-zinc-900 border-zinc-800 text-zinc-700 cursor-not-allowed" : "bg-zinc-800 border-zinc-700 text-white hover:border-amber-400"}`}
+                          className={`py-2.5 rounded-xl text-xs font-bold border transition-all ${editTime === h ? "bg-amber-400 text-zinc-950 border-amber-400" : "bg-zinc-800 border-zinc-700 text-white hover:border-amber-400"}`}
                         >
                           {h}
                         </button>
-                      );
-                    })}
+                      ),
+                    )}
                   </div>
                 </div>
               )}
