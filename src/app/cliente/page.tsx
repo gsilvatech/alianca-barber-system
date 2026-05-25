@@ -27,6 +27,14 @@ type Appointment = {
   barbers: { display_name: string };
 };
 
+// --- INÍCIO DO BLOCO 1 ---
+// Função auxiliar para converter "14:30" em 870 minutos
+const timeToMinutes = (timeStr: string): number => {
+  const [hours, minutes] = timeStr.split(":").map(Number);
+  return hours * 60 + minutes;
+};
+// --- FIM DO BLOCO 1 ---
+
 export default function ClientePage() {
   const router = useRouter();
   const supabase = createClient();
@@ -196,68 +204,170 @@ export default function ClientePage() {
   }, [barberId]);
 
   // Busca Slots do Novo Agendamento
+  // --- INÍCIO DO BLOCO 2 (Substitui o useEffect de Busca de Slots do Novo Agendamento) ---
   useEffect(() => {
-    if (!barberId || !date) return;
+    // Adicionamos !service para só calcular se ele já souber o serviço que o cliente quer
+    if (!barberId || !date || !service) return;
+
     async function loadSlots() {
       const { data } = await supabase
         .from("appointments")
-        .select("time")
+        .select("time, service") // Agora puxamos o nome do serviço que está no banco também!
         .eq("barber_id", barberId)
         .eq("date", date)
         .eq("status", "confirmed");
-      const times = (data || []).map((d: any) => d.time);
+
+      const existingAppts = data || [];
       const blocked: string[] = [];
-      times.forEach((t: string) => {
-        blocked.push(t);
-        const idx = HOURS.indexOf(t);
-        if (idx >= 0 && idx + 1 < HOURS.length) blocked.push(HOURS[idx + 1]);
+      const closingTime = timeToMinutes("19:00");
+      const maxStartTime = timeToMinutes("18:00"); // Mas o último clique permitido na tela é 18h
+      const lunchStart = timeToMinutes("12:00"); // O almoço começa às 12h
+      const lunchEnd = timeToMinutes("13:00"); // O almoço termina às 13h
+      const limitNevouClient = timeToMinutes("15:00");
+
+      // Descobrindo a duração do serviço que o cliente está tentando marcar
+      const selectedSvc = SERVICES.find((s) => s.name === service);
+      const duration = selectedSvc?.duration || 60; // Se não achar, assume 60 min por segurança
+
+      HOURS.forEach((slot) => {
+        const slotStart = timeToMinutes(slot);
+        const slotEnd = slotStart + duration;
+
+        // Regra 1: O serviço não pode terminar depois que a barbearia fecha
+        if (slotStart > maxStartTime || slotEnd > closingTime) {
+          blocked.push(slot);
+          return;
+        }
+
+        // --- NOVA REGRA 1.5: Bloqueio Automático do Almoço ---
+        // Condição A: O horário clicado está dentro do almoço (ex: tentar clicar em 12:10)
+        // Condição B: O serviço começa antes das 12h, mas o fim dele invade o almoço (ex: começar 11:30 e terminar 12:10)
+        const invadiuAlmoco =
+          (slotStart >= lunchStart && slotStart < lunchEnd) ||
+          (slotStart < lunchStart && slotEnd > lunchStart);
+
+        if (invadiuAlmoco) {
+          blocked.push(slot);
+          return;
+        }
+
+        // Regra 2: A Trava do Nevou e Selagem para o Cliente
+        // --- REGRA 2: Travas Específicas (Nevou e Selagem) ---
+        const nomeServicoTratado = service.toLowerCase(); // ou editingAppointment!.service.toLowerCase() na edição
+
+        if (
+          nomeServicoTratado.includes("nevou") &&
+          slotStart > timeToMinutes("15:00")
+        ) {
+          blocked.push(slot);
+          return;
+        }
+
+        if (
+          nomeServicoTratado.includes("selagem") &&
+          slotStart > timeToMinutes("16:00")
+        ) {
+          blocked.push(slot);
+          return;
+        }
+
+        // Regra 3: A Colisão de Horários com a agenda existente
+        const hasConflict = existingAppts.some((appt: any) => {
+          const apptStart = timeToMinutes(appt.time);
+          const apptSvc = SERVICES.find((s) => s.name === appt.service);
+          const apptDuration = apptSvc?.duration || 60;
+          const apptEnd = apptStart + apptDuration;
+
+          // Matemática da sobreposição
+          return slotStart < apptEnd && slotEnd > apptStart;
+        });
+
+        if (hasConflict) {
+          blocked.push(slot);
+        }
       });
       setTakenSlots(blocked);
     }
     loadSlots();
-  }, [barberId, date]);
+  }, [barberId, date, service]); // Dependência do service adicionada
+  // --- FIM DO BLOCO 2 ---
 
   // NOVO: Busca bloqueios e Slots para o Modal de Remarcação
-  useEffect(() => {
-    if (!editingAppointment) return;
-    async function loadEditBlocked() {
-      const { data } = await supabase
-        .from("blocked_dates")
-        .select("date")
-        .eq("barber_id", editingAppointment!.barber_id);
-      setEditBlockedDates((data || []).map((d: any) => d.date));
-    }
-    loadEditBlocked();
-  }, [editingAppointment]);
-
+  // --- INÍCIO DO BLOCO 3 (Substitui o useEffect de Busca de Slots da Remarcação) ---
   useEffect(() => {
     if (!editingAppointment || !editDate) return;
+
     async function loadEditSlots() {
       const { data } = await supabase
         .from("appointments")
-        .select("time")
+        .select("time, service")
         .eq("barber_id", editingAppointment!.barber_id)
         .eq("date", editDate)
         .eq("status", "confirmed");
 
-      const times = (data || []).map((d: any) => d.time);
+      const existingAppts = data || [];
       const blocked: string[] = [];
-      times.forEach((t: string) => {
-        // Ignora a hora original deste agendamento, pois ele pode manter a mesma hora
+      const closingTime = timeToMinutes("19:00");
+      const limitNevouClient = timeToMinutes("15:00");
+
+      const selectedSvc = SERVICES.find(
+        (s) => s.name === editingAppointment!.service,
+      );
+      const duration = selectedSvc?.duration || 60;
+
+      HOURS.forEach((slot) => {
+        const slotStart = timeToMinutes(slot);
+        const slotEnd = slotStart + duration;
+
+        // Ignora a hora original deste agendamento para não bloquear a si mesmo
         if (
           editDate === editingAppointment!.date &&
-          t === editingAppointment!.time
-        )
+          slot === editingAppointment!.time
+        ) {
           return;
+        }
 
-        blocked.push(t);
-        const idx = HOURS.indexOf(t);
-        if (idx >= 0 && idx + 1 < HOURS.length) blocked.push(HOURS[idx + 1]);
+        // Regra 1: Passou das 18h
+        if (slotEnd > closingTime) {
+          blocked.push(slot);
+          return;
+        }
+
+        // Regra 2: Trava do Nevou na edição
+        if (
+          editingAppointment!.service.toLowerCase() === "nevou" &&
+          slotStart > limitNevouClient
+        ) {
+          blocked.push(slot);
+          return;
+        }
+
+        // Regra 3: Colisão de Horários
+        const hasConflict = existingAppts.some((appt: any) => {
+          // Também ignora o próprio agendamento na hora de cruzar os dados com o banco
+          if (
+            appt.time === editingAppointment!.time &&
+            editDate === editingAppointment!.date
+          )
+            return false;
+
+          const apptStart = timeToMinutes(appt.time);
+          const apptSvc = SERVICES.find((s) => s.name === appt.service);
+          const apptDuration = apptSvc?.duration || 60;
+          const apptEnd = apptStart + apptDuration;
+
+          return slotStart < apptEnd && slotEnd > apptStart;
+        });
+
+        if (hasConflict) {
+          blocked.push(slot);
+        }
       });
       setEditTakenSlots(blocked);
     }
     loadEditSlots();
   }, [editDate, editingAppointment]);
+  // --- FIM DO BLOCO 3 ---
 
   async function handleUpdateProfile() {
     if (!profile) return;
@@ -738,19 +848,24 @@ export default function ClientePage() {
                         Horários Disponíveis
                       </label>
                       <div className="grid grid-cols-4 gap-2">
-                        {HOURS.map((h) => {
-                          const blocked = takenSlots.includes(h);
-                          return (
-                            <button
-                              key={h}
-                              disabled={blocked}
-                              onClick={() => setTime(h)}
-                              className={`py-3 rounded-xl text-xs font-bold border transition-all ${time === h ? "bg-amber-400 text-zinc-950 border-amber-400" : blocked ? "bg-zinc-900 border-zinc-800 text-zinc-700 cursor-not-allowed" : "bg-zinc-800 border-zinc-700 text-white hover:border-amber-400"}`}
-                            >
-                              {h}
-                            </button>
-                          );
-                        })}
+                        {/* Filtramos para remover os horários bloqueados ANTES de desenhar os botões */}
+                        {HOURS.filter((h) => !takenSlots.includes(h)).map(
+                          (h) => {
+                            return (
+                              <button
+                                key={h}
+                                onClick={() => setTime(h)}
+                                className={`py-3 rounded-xl text-xs font-bold border transition-all ${
+                                  time === h
+                                    ? "bg-amber-400 text-zinc-950 border-amber-400"
+                                    : "bg-zinc-800 border-zinc-700 text-white hover:border-amber-400"
+                                }`}
+                              >
+                                {h}
+                              </button>
+                            );
+                          },
+                        )}
                       </div>
                     </div>
                   )}
@@ -967,14 +1082,17 @@ export default function ClientePage() {
                     Novo Horário
                   </label>
                   <div className="grid grid-cols-4 gap-2 max-h-48 overflow-y-auto pr-2 custom-scrollbar">
-                    {HOURS.map((h) => {
-                      const blocked = editTakenSlots.includes(h);
+                    {/* Filtramos para remover os horários bloqueados ANTES de desenhar os botões */}
+                    {HOURS.filter((h) => !takenSlots.includes(h)).map((h) => {
                       return (
                         <button
                           key={h}
-                          disabled={blocked}
-                          onClick={() => setEditTime(h)}
-                          className={`py-2.5 rounded-xl text-xs font-bold border transition-all ${editTime === h ? "bg-amber-400 text-zinc-950 border-amber-400" : blocked ? "bg-zinc-900 border-zinc-800 text-zinc-700 cursor-not-allowed" : "bg-zinc-800 border-zinc-700 text-white hover:border-amber-400"}`}
+                          onClick={() => setTime(h)}
+                          className={`py-3 rounded-xl text-xs font-bold border transition-all ${
+                            time === h
+                              ? "bg-amber-400 text-zinc-950 border-amber-400"
+                              : "bg-zinc-800 border-zinc-700 text-white hover:border-amber-400"
+                          }`}
                         >
                           {h}
                         </button>
