@@ -1,12 +1,12 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  typescript: {
-    // Isso permite que o deploy aconteça mesmo com erros de 'any'
-    ignoreBuildErrors: true,
-  },
   eslint: {
-    // Isso ignora os avisos de imagens (<img>) e variáveis não usadas no deploy
+    // Ignora os erros de ESLint na hora de subir para a Vercel
     ignoreDuringBuilds: true,
+  },
+  typescript: {
+    // Ignora os errinhos de tipagem do TypeScript na hora do build
+    ignoreBuildErrors: true,
   },
 };
 
