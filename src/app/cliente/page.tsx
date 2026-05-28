@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import DailyWord from "@/components/DailyWord";
-import { SERVICES, HOURS } from "@/lib/constant";
+import { HOURS } from "@/lib/constant"; // APENAS HOURS AQUI AGORA
 import {
   Home as HomeIcon,
   Clock,
@@ -14,7 +14,7 @@ import {
   ChevronLeft,
   LogOut,
   AlertTriangle,
-  Edit2, // NOVO: Ícone para editar
+  Edit2,
 } from "lucide-react";
 
 type Barber = { id: string; display_name: string; whatsapp: string };
@@ -23,17 +23,23 @@ type Appointment = {
   service: string;
   date: string;
   time: string;
-  barber_id: string; // NOVO: Precisamos saber o ID do barbeiro para remarcar
+  barber_id: string;
   barbers: { display_name: string };
 };
 
-// --- INÍCIO DO BLOCO 1 ---
+// NOVO: Tipo para o Serviço que vem do banco
+type BarberService = {
+  id: string;
+  name: string;
+  price: number;
+  duration: number;
+};
+
 // Função auxiliar para converter "14:30" em 870 minutos
 const timeToMinutes = (timeStr: string): number => {
   const [hours, minutes] = timeStr.split(":").map(Number);
   return hours * 60 + minutes;
 };
-// --- FIM DO BLOCO 1 ---
 
 export default function ClientePage() {
   const router = useRouter();
@@ -57,6 +63,9 @@ export default function ClientePage() {
   const [blockedDates, setBlockedDates] = useState<string[]>([]);
   const [takenSlots, setTakenSlots] = useState<string[]>([]);
 
+  // NOVO: Estado que guarda a lista de serviços dinâmica do banco
+  const [servicesList, setServicesList] = useState<BarberService[]>([]);
+
   // Form state do Novo Agendamento
   const [barberId, setBarberId] = useState("");
   const [service, setService] = useState("");
@@ -79,7 +88,7 @@ export default function ClientePage() {
   const [editBirthDate, setEditBirthDate] = useState("");
   const [loadingProfile, setLoadingProfile] = useState(false);
 
-  // NOVO: Estados para Remarcação de Agendamento do Cliente
+  // Estados para Remarcação de Agendamento do Cliente
   const [editingAppointment, setEditingAppointment] =
     useState<Appointment | null>(null);
   const [editDate, setEditDate] = useState("");
@@ -88,11 +97,10 @@ export default function ClientePage() {
   const [editBlockedDates, setEditBlockedDates] = useState<string[]>([]);
   const [editTakenSlots, setEditTakenSlots] = useState<string[]>([]);
 
-  // Função Universal para abrir Maps/Waze
   function handleOpenMaps() {
     const endereco =
       "Aliança Barber Club, Rua 50, 65 - Vila Santa Cecília, Volta Redonda - RJ, 27261-040";
-    const urlUniversal = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(endereco)}`;
+    const urlUniversal = `https://www.google.com/maps/search/?api=1&query=$${encodeURIComponent(endereco)}`;
     window.open(urlUniversal, "_blank");
   }
 
@@ -129,7 +137,7 @@ export default function ClientePage() {
     setCancelConfirm(null);
   }
 
-  // Carregamento Inicial Isolado
+  // Carregamento Inicial Isolado (AGORA COM OS SERVIÇOS DO BANCO!)
   useEffect(() => {
     async function load() {
       const {
@@ -147,10 +155,11 @@ export default function ClientePage() {
         { data: barb },
         { data: upcomingAppts },
         { data: pastAppts },
+        { data: svcs }, // <-- Buscando os serviços aqui!
       ] = await Promise.all([
         supabase
           .from("profiles")
-          .select("id, name, birth_date, phone") // adicionado id
+          .select("id, name, birth_date, phone")
           .eq("id", user.id)
           .single(),
         supabase.from("barbers").select("id, display_name, whatsapp"),
@@ -158,7 +167,7 @@ export default function ClientePage() {
           .from("appointments")
           .select(
             "id, service, date, time, status, barber_id, barbers(display_name)",
-          ) // adicionado barber_id
+          )
           .eq("client_id", user.id)
           .eq("status", "confirmed")
           .gte("date", todayStr)
@@ -175,12 +184,14 @@ export default function ClientePage() {
           .lt("date", todayStr)
           .order("date", { ascending: false })
           .limit(10),
+        supabase.from("services").select("*").order("name"), // Busca global da tabela services
       ]);
 
       setProfile(prof);
       setBarbers(barb || []);
       setAppointments((upcomingAppts as any) || []);
       setPastAppointments((pastAppts as any) || []);
+      setServicesList(svcs || []); // Salva na memória da tela do cliente
 
       if (prof) {
         setEditPhone(prof.phone || "");
@@ -203,16 +214,14 @@ export default function ClientePage() {
     loadBlocked();
   }, [barberId]);
 
-  // Busca Slots do Novo Agendamento
-  // --- INÍCIO DO BLOCO 2 (Substitui o useEffect de Busca de Slots do Novo Agendamento) ---
+  // Busca Slots do Novo Agendamento LENDO DO BANCO
   useEffect(() => {
-    // Adicionamos !service para só calcular se ele já souber o serviço que o cliente quer
-    if (!barberId || !date || !service) return;
+    if (!barberId || !date || !service || servicesList.length === 0) return;
 
     async function loadSlots() {
       const { data } = await supabase
         .from("appointments")
-        .select("time, service") // Agora puxamos o nome do serviço que está no banco também!
+        .select("time, service")
         .eq("barber_id", barberId)
         .eq("date", date)
         .eq("status", "confirmed");
@@ -220,28 +229,23 @@ export default function ClientePage() {
       const existingAppts = data || [];
       const blocked: string[] = [];
       const closingTime = timeToMinutes("19:00");
-      const maxStartTime = timeToMinutes("18:00"); // Mas o último clique permitido na tela é 18h
-      const lunchStart = timeToMinutes("12:00"); // O almoço começa às 12h
-      const lunchEnd = timeToMinutes("13:00"); // O almoço termina às 13h
-      const limitNevouClient = timeToMinutes("15:00");
+      const maxStartTime = timeToMinutes("18:00");
+      const lunchStart = timeToMinutes("12:00");
+      const lunchEnd = timeToMinutes("13:00");
 
-      // Descobrindo a duração do serviço que o cliente está tentando marcar
-      const selectedSvc = SERVICES.find((s) => s.name === service);
-      const duration = selectedSvc?.duration || 60; // Se não achar, assume 60 min por segurança
+      // Busca na lista dinâmica do banco
+      const selectedSvc = servicesList.find((s) => s.name === service);
+      const duration = selectedSvc?.duration || 60;
 
       HOURS.forEach((slot) => {
         const slotStart = timeToMinutes(slot);
         const slotEnd = slotStart + duration;
 
-        // Regra 1: O serviço não pode terminar depois que a barbearia fecha
         if (slotStart > maxStartTime || slotEnd > closingTime) {
           blocked.push(slot);
           return;
         }
 
-        // --- NOVA REGRA 1.5: Bloqueio Automático do Almoço ---
-        // Condição A: O horário clicado está dentro do almoço (ex: tentar clicar em 12:10)
-        // Condição B: O serviço começa antes das 12h, mas o fim dele invade o almoço (ex: começar 11:30 e terminar 12:10)
         const invadiuAlmoco =
           (slotStart >= lunchStart && slotStart < lunchEnd) ||
           (slotStart < lunchStart && slotEnd > lunchStart);
@@ -251,9 +255,7 @@ export default function ClientePage() {
           return;
         }
 
-        // Regra 2: A Trava do Nevou e Selagem para o Cliente
-        // --- REGRA 2: Travas Específicas (Nevou e Selagem) ---
-        const nomeServicoTratado = service.toLowerCase(); // ou editingAppointment!.service.toLowerCase() na edição
+        const nomeServicoTratado = service.toLowerCase();
 
         if (
           nomeServicoTratado.includes("nevou") &&
@@ -271,14 +273,17 @@ export default function ClientePage() {
           return;
         }
 
-        // Regra 3: A Colisão de Horários com a agenda existente
         const hasConflict = existingAppts.some((appt: any) => {
           const apptStart = timeToMinutes(appt.time);
-          const apptSvc = SERVICES.find((s) => s.name === appt.service);
+
+          let apptSvcName = appt.service;
+          if (apptSvcName.startsWith("MANUAL:"))
+            apptSvcName = apptSvcName.split(" - ")[1] || "Corte";
+
+          const apptSvc = servicesList.find((s) => s.name === apptSvcName);
           const apptDuration = apptSvc?.duration || 60;
           const apptEnd = apptStart + apptDuration;
 
-          // Matemática da sobreposição
           return slotStart < apptEnd && slotEnd > apptStart;
         });
 
@@ -289,13 +294,11 @@ export default function ClientePage() {
       setTakenSlots(blocked);
     }
     loadSlots();
-  }, [barberId, date, service]); // Dependência do service adicionada
-  // --- FIM DO BLOCO 2 ---
+  }, [barberId, date, service, servicesList]);
 
-  // NOVO: Busca bloqueios e Slots para o Modal de Remarcação
-  // --- INÍCIO DO BLOCO 3 (Substitui o useEffect de Busca de Slots da Remarcação) ---
+  // Busca bloqueios e Slots para o Modal de Remarcação LENDO DO BANCO
   useEffect(() => {
-    if (!editingAppointment || !editDate) return;
+    if (!editingAppointment || !editDate || servicesList.length === 0) return;
 
     async function loadEditSlots() {
       const { data } = await supabase
@@ -310,8 +313,13 @@ export default function ClientePage() {
       const closingTime = timeToMinutes("19:00");
       const limitNevouClient = timeToMinutes("15:00");
 
-      const selectedSvc = SERVICES.find(
-        (s) => s.name === editingAppointment!.service,
+      let actualServiceName = editingAppointment!.service;
+      if (actualServiceName.startsWith("MANUAL:")) {
+        actualServiceName = actualServiceName.split(" - ")[1] || "Corte";
+      }
+
+      const selectedSvc = servicesList.find(
+        (s) => s.name === actualServiceName,
       );
       const duration = selectedSvc?.duration || 60;
 
@@ -319,7 +327,6 @@ export default function ClientePage() {
         const slotStart = timeToMinutes(slot);
         const slotEnd = slotStart + duration;
 
-        // Ignora a hora original deste agendamento para não bloquear a si mesmo
         if (
           editDate === editingAppointment!.date &&
           slot === editingAppointment!.time
@@ -327,24 +334,20 @@ export default function ClientePage() {
           return;
         }
 
-        // Regra 1: Passou das 18h
         if (slotEnd > closingTime) {
           blocked.push(slot);
           return;
         }
 
-        // Regra 2: Trava do Nevou na edição
         if (
-          editingAppointment!.service.toLowerCase() === "nevou" &&
+          actualServiceName.toLowerCase() === "nevou" &&
           slotStart > limitNevouClient
         ) {
           blocked.push(slot);
           return;
         }
 
-        // Regra 3: Colisão de Horários
         const hasConflict = existingAppts.some((appt: any) => {
-          // Também ignora o próprio agendamento na hora de cruzar os dados com o banco
           if (
             appt.time === editingAppointment!.time &&
             editDate === editingAppointment!.date
@@ -352,7 +355,12 @@ export default function ClientePage() {
             return false;
 
           const apptStart = timeToMinutes(appt.time);
-          const apptSvc = SERVICES.find((s) => s.name === appt.service);
+
+          let apptSvcName = appt.service;
+          if (apptSvcName.startsWith("MANUAL:"))
+            apptSvcName = apptSvcName.split(" - ")[1] || "Corte";
+
+          const apptSvc = servicesList.find((s) => s.name === apptSvcName);
           const apptDuration = apptSvc?.duration || 60;
           const apptEnd = apptStart + apptDuration;
 
@@ -366,8 +374,7 @@ export default function ClientePage() {
       setEditTakenSlots(blocked);
     }
     loadEditSlots();
-  }, [editDate, editingAppointment]);
-  // --- FIM DO BLOCO 3 ---
+  }, [editDate, editingAppointment, servicesList]);
 
   async function handleUpdateProfile() {
     if (!profile) return;
@@ -400,17 +407,13 @@ export default function ClientePage() {
     setLoadingProfile(false);
   }
 
-  // NOVO: Função para o cliente confirmar a Remarcação
   async function handleReschedule() {
     if (!editingAppointment || !editDate || !editTime) return;
     setIsUpdating(true);
 
     const { error } = await supabase
       .from("appointments")
-      .update({
-        date: editDate,
-        time: editTime,
-      })
+      .update({ date: editDate, time: editTime })
       .eq("id", editingAppointment.id);
 
     if (!error) {
@@ -422,13 +425,11 @@ export default function ClientePage() {
         );
         const urlWhatsapp = `https://api.whatsapp.com/send?phone=55${barber.whatsapp}&text=${msg}`;
 
-        // Timeout para garantir que a interface seja limpa antes do redirect
         setTimeout(() => {
           window.location.href = urlWhatsapp;
         }, 100);
       }
 
-      // Atualiza a lista na tela
       const todayStr = new Date().toISOString().split("T")[0];
       const { data: updatedAppts } = await supabase
         .from("appointments")
@@ -456,7 +457,7 @@ export default function ClientePage() {
       const {
         data: { user },
       } = await supabase.auth.getUser();
-      const svcDetails = SERVICES.find((s) => s.name === service);
+      const svcDetails = servicesList.find((s) => s.name === service);
 
       if (!svcDetails) {
         alert("Erro ao identificar o serviço.");
@@ -497,6 +498,7 @@ export default function ClientePage() {
           .gte("date", new Date().toISOString().split("T")[0])
           .order("date")
           .limit(5);
+
         setAppointments((updatedAppts as any) || []);
         setActiveTab("home");
 
@@ -544,7 +546,6 @@ export default function ClientePage() {
 
   return (
     <main className="min-h-screen bg-zinc-950 text-white pb-28">
-      {/* Header Estilo App */}
       <header className="bg-zinc-900/50 backdrop-blur-md border-b border-zinc-800 px-4 py-4 sticky top-0 z-40">
         <div className="max-w-2xl mx-auto flex items-center justify-between">
           <div className="w-16" />
@@ -563,7 +564,6 @@ export default function ClientePage() {
       </header>
 
       <div className="max-w-2xl mx-auto px-4 py-6 flex flex-col gap-6">
-        {/* ================= TAB 1: HOME ================= */}
         {activeTab === "home" && (
           <div className="flex flex-col gap-6 animate-in fade-in duration-500">
             <div>
@@ -589,7 +589,6 @@ export default function ClientePage() {
               </div>
             )}
 
-            {/* Listagem de Próximos Cortes */}
             <section>
               <h3 className="text-[10px] font-bold text-zinc-500 uppercase tracking-[0.2em] mb-3">
                 Seus Próximos Agendamentos
@@ -626,8 +625,6 @@ export default function ClientePage() {
                             </div>
                           </div>
                         </div>
-
-                        {/* NOVO: Botões agrupados horizontalmente de Remarcar e Cancelar */}
                         <div className="flex gap-2 border-t border-zinc-800/60 pt-3">
                           <button
                             onClick={() => {
@@ -637,8 +634,7 @@ export default function ClientePage() {
                             }}
                             className="flex-1 flex items-center justify-center gap-1.5 text-xs text-amber-400 hover:text-amber-300 bg-zinc-950/30 hover:bg-zinc-800 transition-colors font-bold border border-zinc-800 px-2 py-2 rounded-lg"
                           >
-                            <Edit2 size={14} />
-                            Remarcar
+                            <Edit2 size={14} /> Remarcar
                           </button>
                           <button
                             onClick={() =>
@@ -662,7 +658,6 @@ export default function ClientePage() {
               </div>
             </section>
 
-            {/* SEÇÃO ONDE ESTAMOS */}
             <section>
               <h3 className="text-[10px] font-bold text-zinc-500 uppercase tracking-[0.2em] mb-3">
                 Onde Estamos?
@@ -695,7 +690,6 @@ export default function ClientePage() {
           </div>
         )}
 
-        {/* ================= TAB 2: HISTÓRICO ================= */}
         {activeTab === "historico" && (
           <div className="flex flex-col gap-4 animate-in fade-in duration-500">
             <div>
@@ -736,7 +730,6 @@ export default function ClientePage() {
           </div>
         )}
 
-        {/* ================= TAB 3: AGENDAMENTO STEPPER ================= */}
         {activeTab === "agendar" && (
           <div className="flex flex-col gap-6 animate-in slide-in-from-bottom-4 duration-500">
             <div className="flex items-center gap-2">
@@ -794,27 +787,33 @@ export default function ClientePage() {
                     Selecione o Serviço
                   </label>
                   <div className="flex flex-col gap-2">
-                    {SERVICES.map((s) => (
-                      <button
-                        key={s.name}
-                        onClick={() => {
-                          setService(s.name);
-                          setStep(3);
-                        }}
-                        className={`py-4 px-4 rounded-xl text-sm border font-bold transition-all flex justify-between items-center text-left ${service === s.name ? "bg-amber-400 text-zinc-950 border-amber-400" : "bg-zinc-800 border-zinc-700 text-white hover:border-amber-400"}`}
-                      >
-                        <span>{s.name}</span>
-                        <span
-                          className={
-                            service === s.name
-                              ? "text-zinc-950 font-black"
-                              : "text-amber-400 font-black"
-                          }
+                    {servicesList.length === 0 ? (
+                      <p className="text-zinc-500 text-sm italic">
+                        Nenhum serviço cadastrado ainda.
+                      </p>
+                    ) : (
+                      servicesList.map((s) => (
+                        <button
+                          key={s.id}
+                          onClick={() => {
+                            setService(s.name);
+                            setStep(3);
+                          }}
+                          className={`py-4 px-4 rounded-xl text-sm border font-bold transition-all flex justify-between items-center text-left ${service === s.name ? "bg-amber-400 text-zinc-950 border-amber-400" : "bg-zinc-800 border-zinc-700 text-white hover:border-amber-400"}`}
                         >
-                          R$ {s.price.toFixed(2).replace(".", ",")}
-                        </span>
-                      </button>
-                    ))}
+                          <span>{s.name}</span>
+                          <span
+                            className={
+                              service === s.name
+                                ? "text-zinc-950 font-black"
+                                : "text-amber-400 font-black"
+                            }
+                          >
+                            R$ {s.price.toFixed(2).replace(".", ",")}
+                          </span>
+                        </button>
+                      ))
+                    )}
                   </div>
                 </div>
               )}
@@ -835,7 +834,7 @@ export default function ClientePage() {
                           setDate(d);
                           setTime("");
                         } else {
-                          alert("Esta data está bloqueada ou é domingo.");
+                          alert("Data bloqueada ou domingo.");
                         }
                       }}
                       className="bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-amber-400 transition-colors [color-scheme:dark]"
@@ -848,18 +847,13 @@ export default function ClientePage() {
                         Horários Disponíveis
                       </label>
                       <div className="grid grid-cols-4 gap-2">
-                        {/* Filtramos para remover os horários bloqueados ANTES de desenhar os botões */}
                         {HOURS.filter((h) => !takenSlots.includes(h)).map(
                           (h) => {
                             return (
                               <button
                                 key={h}
                                 onClick={() => setTime(h)}
-                                className={`py-3 rounded-xl text-xs font-bold border transition-all ${
-                                  time === h
-                                    ? "bg-amber-400 text-zinc-950 border-amber-400"
-                                    : "bg-zinc-800 border-zinc-700 text-white hover:border-amber-400"
-                                }`}
+                                className={`py-3 rounded-xl text-xs font-bold border transition-all ${time === h ? "bg-amber-400 text-zinc-950 border-amber-400" : "bg-zinc-800 border-zinc-700 text-white hover:border-amber-400"}`}
                               >
                                 {h}
                               </button>
@@ -900,7 +894,8 @@ export default function ClientePage() {
                         Total:{" "}
                         <span className="text-white font-black">
                           R${" "}
-                          {SERVICES.find((s) => s.name === service)
+                          {servicesList
+                            .find((s) => s.name === service)
                             ?.price.toFixed(2)
                             .replace(".", ",")}
                         </span>
@@ -921,7 +916,6 @@ export default function ClientePage() {
           </div>
         )}
 
-        {/* ================= TAB 4: FIDELIDADE EM CONSTRUÇÃO ================= */}
         {activeTab === "fidelidade" && (
           <div className="flex flex-col items-center justify-center py-16 gap-4 text-center animate-in fade-in duration-500">
             <div className="bg-amber-500/10 p-4 rounded-full text-amber-400 animate-bounce">
@@ -929,11 +923,10 @@ export default function ClientePage() {
             </div>
             <div>
               <h2 className="text-lg font-bold italic text-zinc-100">
-                Clube de Vantagens Aliança
+                Clube de Vantagens
               </h2>
               <p className="text-zinc-500 text-sm mt-1 max-w-xs mx-auto">
-                Estamos alinhando com os barbeiros os melhores prêmios para
-                você.
+                Estamos alinhando com os barbeiros os melhores prêmios.
               </p>
             </div>
             <span className="text-xs font-black tracking-widest text-amber-400 bg-zinc-900 border border-amber-500/20 px-4 py-2 rounded-full uppercase animate-pulse">
@@ -942,14 +935,13 @@ export default function ClientePage() {
           </div>
         )}
 
-        {/* ================= TAB 5: PERFIL DINÂMICO ================= */}
         {activeTab === "perfil" && (
           <div className="flex flex-col gap-6 animate-in fade-in duration-500">
             <div className="flex justify-between items-center">
               <div>
                 <h2 className="text-xl font-bold italic">Seu Perfil</h2>
                 <p className="text-zinc-500 text-xs">
-                  Suas informações cadastradas no clube.
+                  Suas informações cadastradas.
                 </p>
               </div>
               {!isEditingProfile && (
@@ -971,7 +963,6 @@ export default function ClientePage() {
                   {profile?.name || "Não informado"}
                 </span>
               </div>
-
               <div className="flex flex-col gap-1 border-t border-zinc-800/60 pt-3">
                 <span className="text-[10px] font-bold text-zinc-500 uppercase">
                   WhatsApp
@@ -982,7 +973,7 @@ export default function ClientePage() {
                     value={editPhone}
                     onChange={(e) => setEditPhone(e.target.value)}
                     placeholder="(24) 99999-0000"
-                    className="bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-amber-400 mt-1 transition-colors"
+                    className="bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-2 text-sm text-white outline-none focus:border-amber-400 mt-1 transition-colors"
                   />
                 ) : (
                   <span className="text-sm font-bold text-zinc-200">
@@ -990,17 +981,16 @@ export default function ClientePage() {
                   </span>
                 )}
               </div>
-
               <div className="flex flex-col gap-1 border-t border-zinc-800/60 pt-3">
                 <span className="text-[10px] font-bold text-zinc-500 uppercase">
-                  Data de Nascimento (CRM)
+                  Data de Nascimento
                 </span>
                 {isEditingProfile ? (
                   <input
                     type="date"
                     value={editBirthDate}
                     onChange={(e) => setEditBirthDate(e.target.value)}
-                    className="bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-2 text-sm text-amber-400 focus:outline-none focus:border-amber-400 mt-1 transition-colors [color-scheme:dark]"
+                    className="bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-2 text-sm text-amber-400 outline-none focus:border-amber-400 mt-1 [color-scheme:dark]"
                   />
                 ) : (
                   <span className="text-sm font-bold text-amber-400">
@@ -1010,7 +1000,6 @@ export default function ClientePage() {
                   </span>
                 )}
               </div>
-
               {isEditingProfile && (
                 <div className="flex gap-3 mt-2 border-t border-zinc-800/60 pt-4 animate-in zoom-in-95 duration-200">
                   <button
@@ -1027,7 +1016,7 @@ export default function ClientePage() {
                   <button
                     onClick={handleUpdateProfile}
                     disabled={loadingProfile}
-                    className="flex-1 py-3 rounded-xl bg-amber-400 hover:bg-amber-300 text-zinc-950 text-xs font-black uppercase tracking-wider disabled:opacity-50 transition-colors shadow-[0_4px_15px_rgba(251,191,36,0.1)]"
+                    className="flex-1 py-3 rounded-xl bg-amber-400 hover:bg-amber-300 text-zinc-950 text-xs font-black uppercase tracking-wider disabled:opacity-50"
                   >
                     {loadingProfile ? "Salvando..." : "Salvar"}
                   </button>
@@ -1038,7 +1027,6 @@ export default function ClientePage() {
         )}
       </div>
 
-      {/* NOVO: Modal de Edição (Remarcação do Cliente) */}
       {editingAppointment && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 px-4 backdrop-blur-sm">
           <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 w-full max-w-sm flex flex-col gap-5">
@@ -1053,7 +1041,6 @@ export default function ClientePage() {
                 </span>
               </p>
             </div>
-
             <div className="flex flex-col gap-4">
               <div className="flex flex-col gap-1.5">
                 <label className="text-zinc-400 text-xs font-bold uppercase tracking-wider">
@@ -1067,53 +1054,46 @@ export default function ClientePage() {
                     const d = e.target.value;
                     if (!isEditDateBlocked(d)) {
                       setEditDate(d);
-                      setEditTime(""); // Reseta a hora ao mudar o dia
+                      setEditTime("");
                     } else {
-                      alert("Esta data está bloqueada ou é domingo.");
+                      alert("Data bloqueada/domingo.");
                     }
                   }}
-                  className="bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-amber-400 transition-colors [color-scheme:dark]"
+                  className="bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white text-sm outline-none focus:border-amber-400 [color-scheme:dark]"
                 />
               </div>
-
               {editDate && !isEditDateBlocked(editDate) && (
                 <div className="flex flex-col gap-1.5 animate-in zoom-in-95 duration-200">
                   <label className="text-zinc-400 text-xs font-bold uppercase tracking-wider">
                     Novo Horário
                   </label>
                   <div className="grid grid-cols-4 gap-2 max-h-48 overflow-y-auto pr-2 custom-scrollbar">
-                    {/* Filtramos para remover os horários bloqueados ANTES de desenhar os botões */}
-                    {HOURS.filter((h) => !takenSlots.includes(h)).map((h) => {
-                      return (
+                    {HOURS.filter((h) => !editTakenSlots.includes(h)).map(
+                      (h) => (
                         <button
                           key={h}
                           onClick={() => setTime(h)}
-                          className={`py-3 rounded-xl text-xs font-bold border transition-all ${
-                            time === h
-                              ? "bg-amber-400 text-zinc-950 border-amber-400"
-                              : "bg-zinc-800 border-zinc-700 text-white hover:border-amber-400"
-                          }`}
+                          className={`py-3 rounded-xl text-xs font-bold border transition-all ${time === h ? "bg-amber-400 text-zinc-950 border-amber-400" : "bg-zinc-800 border-zinc-700 text-white hover:border-amber-400"}`}
                         >
                           {h}
                         </button>
-                      );
-                    })}
+                      ),
+                    )}
                   </div>
                 </div>
               )}
             </div>
-
             <div className="flex gap-3 mt-2 border-t border-zinc-800 pt-4">
               <button
                 onClick={() => setEditingAppointment(null)}
-                className="flex-1 py-3 rounded-xl border border-zinc-700 text-zinc-400 hover:text-white transition-colors font-bold text-xs uppercase tracking-wider"
+                className="flex-1 py-3 rounded-xl border border-zinc-700 text-zinc-400 hover:text-white font-bold text-xs uppercase"
               >
                 Voltar
               </button>
               <button
                 onClick={handleReschedule}
                 disabled={!editDate || !editTime || isUpdating}
-                className="flex-1 py-3 rounded-xl bg-amber-400 hover:bg-amber-300 transition-colors text-zinc-950 font-black text-xs uppercase tracking-wider disabled:opacity-50 shadow-[0_4px_15px_rgba(251,191,36,0.15)]"
+                className="flex-1 py-3 rounded-xl bg-amber-400 hover:bg-amber-300 text-zinc-950 font-black text-xs uppercase disabled:opacity-50"
               >
                 {isUpdating ? "Salvando..." : "Confirmar"}
               </button>
@@ -1122,7 +1102,6 @@ export default function ClientePage() {
         </div>
       )}
 
-      {/* Modal de Cancelamento (Global da tela) */}
       {cancelConfirm && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 px-4 backdrop-blur-sm">
           <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 w-full max-w-sm flex flex-col gap-4">
@@ -1152,13 +1131,13 @@ export default function ClientePage() {
             <div className="flex gap-3 mt-1">
               <button
                 onClick={() => setCancelConfirm(null)}
-                className="flex-1 py-3 rounded-xl border border-zinc-800 text-zinc-400 hover:text-white transition-colors font-bold text-xs uppercase tracking-wider"
+                className="flex-1 py-3 rounded-xl border border-zinc-800 text-zinc-400 hover:text-white font-bold text-xs uppercase"
               >
                 Voltar
               </button>
               <button
                 onClick={confirmCancel}
-                className="flex-1 py-3 rounded-xl bg-red-500 hover:bg-red-400 transition-colors text-white font-bold text-xs uppercase tracking-wider shadow-[0_4px_15px_rgba(239,68,68,0.2)]"
+                className="flex-1 py-3 rounded-xl bg-red-500 hover:bg-red-400 text-white font-bold text-xs uppercase"
               >
                 Confirmar
               </button>
@@ -1167,7 +1146,6 @@ export default function ClientePage() {
         </div>
       )}
 
-      {/* MENU INFERIOR DE 5 ITENS COM BOTÃO CENTRAL */}
       <nav className="fixed bottom-0 left-0 right-0 bg-zinc-900/80 backdrop-blur-xl border-t border-zinc-800/50 px-4 pt-3 pb-8 flex justify-between items-center z-50">
         <NavButton icon={HomeIcon} label="Início" tabId="home" />
         <NavButton icon={Clock} label="Histórico" tabId="historico" />
