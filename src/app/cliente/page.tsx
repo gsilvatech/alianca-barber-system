@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import DailyWord from "@/components/DailyWord";
-import { HOURS } from "@/lib/constant"; // APENAS HOURS AQUI AGORA
+import { HOURS } from "@/lib/constant";
 import {
   Home as HomeIcon,
   Clock,
@@ -27,7 +27,6 @@ type Appointment = {
   barbers: { display_name: string };
 };
 
-// NOVO: Tipo para o Serviço que vem do banco
 type BarberService = {
   id: string;
   name: string;
@@ -63,7 +62,7 @@ export default function ClientePage() {
   const [blockedDates, setBlockedDates] = useState<string[]>([]);
   const [takenSlots, setTakenSlots] = useState<string[]>([]);
 
-  // NOVO: Estado que guarda a lista de serviços dinâmica do banco
+  // Estado que guarda a lista de serviços dinâmica do banco
   const [servicesList, setServicesList] = useState<BarberService[]>([]);
 
   // Form state do Novo Agendamento
@@ -457,6 +456,8 @@ export default function ClientePage() {
       const {
         data: { user },
       } = await supabase.auth.getUser();
+
+      // Busca os detalhes completos do serviço na lista que veio do banco
       const svcDetails = servicesList.find((s) => s.name === service);
 
       if (!svcDetails) {
@@ -465,6 +466,7 @@ export default function ClientePage() {
         return;
       }
 
+      // Injeta o `price_applied` congelado no banco
       const { error } = await supabase.from("appointments").insert({
         client_id: user!.id,
         barber_id: barberId,
@@ -472,6 +474,7 @@ export default function ClientePage() {
         date,
         time,
         status: "confirmed",
+        price_applied: svcDetails.price, // Congela o valor matemático do corte
       });
 
       if (!error) {
