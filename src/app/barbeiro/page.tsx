@@ -20,6 +20,7 @@ import {
   MinusCircle,
   Clock,
   TrendingUp,
+  TrendingDown,
   Target,
   CreditCard,
   UserPlus,
@@ -28,7 +29,6 @@ import {
   CheckCircle2,
 } from "lucide-react";
 
-// --- MOTOR DE TEMPO E AUTO-COMPLETE ---
 const timeToMinutes = (timeStr: string): number => {
   const [hours, minutes] = timeStr.split(":").map(Number);
   return hours * 60 + minutes;
@@ -42,6 +42,22 @@ const isPast = (dateStr: string, timeStr: string) => {
   const apptDate = new Date(year, month - 1, day, hours, minutes);
   return now > apptDate;
 };
+
+// Componente para renderizar a porcentagem de crescimento Verde/Vermelha
+function renderGrowth(current: number, past: number) {
+  if (past === 0 && current === 0) return null;
+  const pct = past === 0 ? 100 : ((current - past) / past) * 100;
+  const isPositive = pct >= 0;
+  return (
+    <div
+      className={`flex items-center gap-1 text-[9px] font-bold w-fit px-1.5 py-0.5 rounded-md ${isPositive ? "text-emerald-400 bg-emerald-400/10" : "text-red-400 bg-red-400/10"}`}
+    >
+      {isPositive ? <TrendingUp size={10} /> : <TrendingDown size={10} />}
+      {isPositive ? "+" : ""}
+      {pct.toFixed(0)}%
+    </div>
+  );
+}
 
 type Appointment = {
   id: string;
@@ -93,10 +109,7 @@ export default function BarbeiroPage() {
   const [tab, setTab] = useState<"semana" | "mes">("semana");
 
   const [isFullDay, setIsFullDay] = useState(true);
-
-  // --- ATUALIZADO: MULTI-SELECT PARA BLOQUEIOS ---
   const [selectedTimes, setSelectedTimes] = useState<string[]>([]);
-
   const [activeTab, setActiveTab] = useState<
     "home" | "agenda" | "financeiro" | "gestao" | "novo"
   >("home");
@@ -164,6 +177,8 @@ export default function BarbeiroPage() {
   const [isSavingSvc, setIsSavingSvc] = useState(false);
 
   const [goals, setGoals] = useState<BarberGoal[]>([]);
+
+  // --- ATUALIZADO: Gráficos agora suportam quantidade de clientes ---
   const [finances, setFinances] = useState({
     mesAtual: 0,
     mesPassado: 0,
@@ -171,16 +186,27 @@ export default function BarbeiroPage() {
     clientesMesAtual: 0,
     clientesMesPassado: 0,
     globalMesAtual: 0,
+    globalMesPassado: 0,
     globalClientesMesAtual: 0,
-    servicosMesAtual: 0,
-    produtosMesAtual: 0,
+    globalClientesMesPassado: 0,
+    globalServicosMesAtual: 0,
+    globalProdutosMesAtual: 0,
+    chartData: [] as {
+      name: string;
+      ind: number;
+      gen: number;
+      indClients: number;
+      genClients: number;
+    }[],
+    maxInd: 1,
+    maxGen: 1,
   });
+
   const [isGoalModalOpen, setIsGoalModalOpen] = useState(false);
   const [goalTitle, setGoalTitle] = useState("");
   const [goalTarget, setGoalTarget] = useState("");
   const [isSavingGoal, setIsSavingGoal] = useState(false);
 
-  // CRM
   const [crmTab, setCrmTab] = useState<"assinaturas" | "clientes">(
     "assinaturas",
   );
@@ -248,15 +274,15 @@ export default function BarbeiroPage() {
     setGoals(gData || []);
 
     const now = new Date();
-    const year = now.getFullYear();
-    const month = now.getMonth();
-    const firstDayThisMonth = new Date(year, month, 1)
+    const currentYear = now.getFullYear();
+    const currentMonthIdx = now.getMonth();
+    const firstDayThisMonth = new Date(currentYear, currentMonthIdx, 1)
       .toISOString()
       .split("T")[0];
-    const firstDayLastMonth = new Date(year, month - 1, 1)
+    const firstDayLastMonth = new Date(currentYear, currentMonthIdx - 1, 1)
       .toISOString()
       .split("T")[0];
-    const lastDayLastMonth = new Date(year, month, 0)
+    const lastDayLastMonth = new Date(currentYear, currentMonthIdx, 0)
       .toISOString()
       .split("T")[0];
     const today = now.toISOString().split("T")[0];
@@ -278,20 +304,50 @@ export default function BarbeiroPage() {
       clientesMesAtual = 0,
       clientesMesPassado = 0,
       globalMesAtual = 0,
+      globalMesPassado = 0,
       globalClientesMesAtual = 0,
-      produtosMesAtual = 0;
+      globalClientesMesPassado = 0,
+      globalServicosMesAtual = 0,
+      globalProdutosMesAtual = 0;
+
+    let chartData = [
+      { name: "Jan", ind: 0, gen: 0, indClients: 0, genClients: 0 },
+      { name: "Fev", ind: 0, gen: 0, indClients: 0, genClients: 0 },
+      { name: "Mar", ind: 0, gen: 0, indClients: 0, genClients: 0 },
+      { name: "Abr", ind: 0, gen: 0, indClients: 0, genClients: 0 },
+      { name: "Mai", ind: 0, gen: 0, indClients: 0, genClients: 0 },
+      { name: "Jun", ind: 0, gen: 0, indClients: 0, genClients: 0 },
+      { name: "Jul", ind: 0, gen: 0, indClients: 0, genClients: 0 },
+      { name: "Ago", ind: 0, gen: 0, indClients: 0, genClients: 0 },
+      { name: "Set", ind: 0, gen: 0, indClients: 0, genClients: 0 },
+      { name: "Out", ind: 0, gen: 0, indClients: 0, genClients: 0 },
+      { name: "Nov", ind: 0, gen: 0, indClients: 0, genClients: 0 },
+      { name: "Dez", ind: 0, gen: 0, indClients: 0, genClients: 0 },
+    ];
 
     if (allPlans) {
       allPlans.forEach((p) => {
         const val = Number(p.price_paid);
+        const [py, pm, pd] = p.created_at.split("T")[0].split("-");
+        const pYear = parseInt(py);
+        const pMonthIdx = parseInt(pm) - 1;
         const pDate = p.created_at.split("T")[0];
+
+        if (pYear === currentYear) {
+          chartData[pMonthIdx].gen += val;
+          if (p.barber_id === barberId) chartData[pMonthIdx].ind += val;
+        }
+
         if (p.barber_id === barberId) {
           total += val;
           if (pDate >= firstDayThisMonth) mesAtual += val;
           if (pDate >= firstDayLastMonth && pDate <= lastDayLastMonth)
             mesPassado += val;
         }
+
         if (pDate >= firstDayThisMonth) globalMesAtual += val;
+        if (pDate >= firstDayLastMonth && pDate <= lastDayLastMonth)
+          globalMesPassado += val;
       });
     }
 
@@ -305,24 +361,41 @@ export default function BarbeiroPage() {
           a.status === "completed" ||
           (a.status === "confirmed" && timeHasPassed);
 
-        if (a.barber_id === barberId && shouldCountRevenue) {
-          total += val;
+        const [ay, am, ad] = a.date.split("-");
+        const aYear = parseInt(ay);
+        const aMonthIdx = parseInt(am) - 1;
+
+        if (shouldCountRevenue) {
+          if (aYear === currentYear) {
+            chartData[aMonthIdx].gen += val;
+            if (!isBlock) chartData[aMonthIdx].genClients += 1;
+
+            if (a.barber_id === barberId) {
+              chartData[aMonthIdx].ind += val;
+              if (!isBlock) chartData[aMonthIdx].indClients += 1;
+            }
+          }
+
+          if (a.barber_id === barberId) {
+            total += val;
+            if (aDate >= firstDayThisMonth && aDate <= today) {
+              mesAtual += val;
+              if (!isBlock) clientesMesAtual++;
+            }
+            if (aDate >= firstDayLastMonth && aDate <= lastDayLastMonth) {
+              mesPassado += val;
+              if (!isBlock) clientesMesPassado++;
+            }
+          }
+
           if (aDate >= firstDayThisMonth && aDate <= today) {
-            mesAtual += val;
-            if (!isBlock) clientesMesAtual++;
+            globalMesAtual += val;
+            if (!isBlock) globalClientesMesAtual++;
           }
           if (aDate >= firstDayLastMonth && aDate <= lastDayLastMonth) {
-            mesPassado += val;
-            if (!isBlock) clientesMesPassado++;
+            globalMesPassado += val;
+            if (!isBlock) globalClientesMesPassado++;
           }
-        }
-        if (
-          aDate >= firstDayThisMonth &&
-          aDate <= today &&
-          shouldCountRevenue
-        ) {
-          globalMesAtual += val;
-          if (!isBlock) globalClientesMesAtual++;
         }
       });
     }
@@ -331,20 +404,28 @@ export default function BarbeiroPage() {
       allProductSales.forEach((s) => {
         const val = Number(s.total_price || 0);
         const sDate = s.created_at.split("T")[0];
-        if (s.barber_id === barberId) {
-          total += val;
-          if (sDate >= firstDayThisMonth && sDate <= today) {
-            mesAtual += val;
-            produtosMesAtual += val;
-          }
-          if (sDate >= firstDayLastMonth && sDate <= lastDayLastMonth)
-            mesPassado += val;
+        const [sy, sm, sd] = sDate.split("-");
+        const sYear = parseInt(sy);
+        const sMonthIdx = parseInt(sm) - 1;
+
+        if (sYear === currentYear) {
+          chartData[sMonthIdx].gen += val;
         }
-        if (sDate >= firstDayThisMonth && sDate <= today) globalMesAtual += val;
+
+        if (sDate >= firstDayThisMonth && sDate <= today) {
+          globalMesAtual += val;
+          globalProdutosMesAtual += val;
+        }
+        if (sDate >= firstDayLastMonth && sDate <= lastDayLastMonth) {
+          globalMesPassado += val;
+        }
       });
     }
 
-    const servicosMesAtual = mesAtual - produtosMesAtual;
+    globalServicosMesAtual = globalMesAtual - globalProdutosMesAtual;
+    const maxInd = Math.max(...chartData.map((d) => d.ind), 1);
+    const maxGen = Math.max(...chartData.map((d) => d.gen), 1);
+
     setFinances({
       mesAtual,
       mesPassado,
@@ -352,9 +433,14 @@ export default function BarbeiroPage() {
       clientesMesAtual,
       clientesMesPassado,
       globalMesAtual,
+      globalMesPassado,
       globalClientesMesAtual,
-      servicosMesAtual,
-      produtosMesAtual,
+      globalClientesMesPassado,
+      globalServicosMesAtual,
+      globalProdutosMesAtual,
+      chartData,
+      maxInd,
+      maxGen,
     });
   }
 
@@ -523,21 +609,15 @@ export default function BarbeiroPage() {
     loadManualSlots();
   }, [barberId, manualDate, manualService, servicesList]);
 
-  const isEditDateBlocked = (d: string) => {
-    const day = new Date(d + "T12:00:00").getDay();
-    return day === 0 || blockedDates.some((b) => b.date === d);
-  };
   async function handleLogout() {
     await supabase.auth.signOut();
     router.refresh();
     router.push("/login");
   }
 
-  // --- ATUALIZADO: SALVAMENTO EM LOTE DE MULTIPLOS HORÁRIOS BLOQUEADOS ---
   async function handleSmartBlock() {
     if (!newBlockDate || !barberId) return;
     setLoadingBlock(true);
-
     if (isFullDay) {
       await supabase
         .from("blocked_dates")
@@ -550,7 +630,6 @@ export default function BarbeiroPage() {
       const motivoFinal = newBlockReason
         ? `BLOQUEIO: ${newBlockReason}`
         : "BLOQUEIO INDISPONÍVEL";
-
       const blocksToInsert = selectedTimes.map((time) => ({
         barber_id: barberId,
         client_id: profile?.id,
@@ -560,7 +639,6 @@ export default function BarbeiroPage() {
         status: "confirmed",
         price_applied: 0,
       }));
-
       await supabase.from("appointments").insert(blocksToInsert);
     }
     loadAppts();
@@ -584,12 +662,10 @@ export default function BarbeiroPage() {
   async function handleCancelByBarber(id: string) {
     if (!confirm("Cancelar?")) return;
     const apptToCancel = [...today, ...week].find((a) => a.id === id);
-
     await supabase
       .from("appointments")
       .update({ status: "canceled" })
       .eq("id", id);
-
     if (apptToCancel?.client_plan_id) {
       const { data: planData } = await supabase
         .from("client_plans")
@@ -911,7 +987,6 @@ export default function BarbeiroPage() {
   async function handleManualSchedule() {
     if (!manualCustomer || !manualService || !manualDate || !manualTime) return;
     setIsSaving(true);
-
     const selectedServiceData = servicesList.find(
       (sv) => sv.name === manualService,
     );
@@ -925,17 +1000,18 @@ export default function BarbeiroPage() {
       planId = activeClientPlan.id;
     }
 
-    const { error } = await supabase.from("appointments").insert({
-      barber_id: barberId,
-      client_id: manualClientId !== "AVULSO" ? manualClientId : profile?.id,
-      client_plan_id: planId,
-      date: manualDate,
-      time: manualTime,
-      service: finalServiceTag,
-      status: "confirmed",
-      price_applied: appliedPrice,
-    });
-
+    const { error } = await supabase
+      .from("appointments")
+      .insert({
+        barber_id: barberId,
+        client_id: manualClientId !== "AVULSO" ? manualClientId : profile?.id,
+        client_plan_id: planId,
+        date: manualDate,
+        time: manualTime,
+        service: finalServiceTag,
+        status: "confirmed",
+        price_applied: appliedPrice,
+      });
     if (!error) {
       if (usePlan && activeClientPlan) {
         await supabase
@@ -985,6 +1061,7 @@ export default function BarbeiroPage() {
       </header>
 
       <div className="max-w-3xl mx-auto px-4 py-6">
+        {/* HOME */}
         {activeTab === "home" && (
           <div className="flex flex-col gap-8 animate-in fade-in duration-500">
             <div>
@@ -1113,14 +1190,13 @@ export default function BarbeiroPage() {
           </div>
         )}
 
-        {/* --- ATUALIZADO: AGENDA COM MULTI-SELECT DE BLOQUEIO --- */}
+        {/* AGENDA */}
         {activeTab === "agenda" && (
           <div className="flex flex-col gap-8 animate-in slide-in-from-bottom-4 duration-500">
             <section>
               <div className="flex justify-between items-center mb-4">
                 <h3 className="text-xl font-bold italic">Sua Agenda</h3>
               </div>
-
               <div className="flex gap-2 bg-zinc-900 p-1 rounded-xl mb-6 border border-zinc-800">
                 <button
                   onClick={() => setTab("semana")}
@@ -1135,7 +1211,6 @@ export default function BarbeiroPage() {
                   Próximos 30 Dias
                 </button>
               </div>
-
               <div className="flex flex-col gap-3">
                 {week.length === 0 ? (
                   <div className="bg-zinc-900 border border-zinc-800 rounded-2xl px-4 py-10 text-center text-zinc-600 text-sm italic">
@@ -1233,7 +1308,6 @@ export default function BarbeiroPage() {
                     className="bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white text-sm focus:border-amber-400 outline-none"
                   />
                 </div>
-
                 <div className="flex bg-zinc-800 p-1 rounded-xl border border-zinc-700">
                   <button
                     onClick={() => {
@@ -1251,7 +1325,6 @@ export default function BarbeiroPage() {
                     ESCOLHER HORÁRIOS
                   </button>
                 </div>
-
                 {!isFullDay && (
                   <div className="grid grid-cols-4 gap-2 max-h-48 overflow-y-auto pr-2 custom-scrollbar">
                     {HOURS.map((h) => {
@@ -1324,7 +1397,7 @@ export default function BarbeiroPage() {
           </div>
         )}
 
-        {/* --- ATUALIZADO: NOVO AGENDAMENTO INTELIGENTE --- */}
+        {/* NOVO AGENDAMENTO */}
         {activeTab === "novo" && (
           <div className="flex flex-col gap-6 animate-in fade-in duration-500">
             <header>
@@ -1332,7 +1405,6 @@ export default function BarbeiroPage() {
                 Novo Agendamento
               </h1>
             </header>
-
             <div className="flex flex-col gap-4 bg-zinc-900/50 border border-zinc-800 p-6 rounded-3xl shadow-lg">
               <select
                 value={manualClientId}
@@ -1363,7 +1435,6 @@ export default function BarbeiroPage() {
                   ))}
                 </optgroup>
               </select>
-
               {manualClientId === "AVULSO" && (
                 <input
                   type="text"
@@ -1373,7 +1444,6 @@ export default function BarbeiroPage() {
                   className="bg-zinc-800 border border-zinc-700 rounded-2xl px-4 py-3 text-white outline-none animate-in fade-in focus:border-amber-400 transition-colors"
                 />
               )}
-
               <div className="grid grid-cols-2 gap-4">
                 <select
                   value={manualService}
@@ -1404,7 +1474,6 @@ export default function BarbeiroPage() {
                   className={`bg-zinc-800 border border-zinc-700 rounded-2xl px-4 py-3 font-bold ${usePlan ? "text-amber-400" : "text-zinc-500"}`}
                 />
               </div>
-
               {activeClientPlan && (
                 <div className="bg-zinc-950/50 p-4 rounded-2xl border border-amber-500/30 flex flex-col gap-2 animate-in zoom-in-95 shadow-[0_0_15px_rgba(251,191,36,0.05)]">
                   <label className="flex items-center gap-3 text-sm font-bold text-zinc-200 cursor-pointer">
@@ -1422,7 +1491,6 @@ export default function BarbeiroPage() {
                   </p>
                 </div>
               )}
-
               <input
                 type="date"
                 value={manualDate}
@@ -1457,7 +1525,7 @@ export default function BarbeiroPage() {
           </div>
         )}
 
-        {/* FINANÇAS E GERAL (MANTIDO) */}
+        {/* --- FINANÇAS (BI TURBINADO) --- */}
         {activeTab === "financeiro" && (
           <div className="flex flex-col gap-6 animate-in fade-in duration-500">
             <header className="mb-2">
@@ -1468,6 +1536,8 @@ export default function BarbeiroPage() {
                 Visão geral do negócio e suas metas.
               </p>
             </header>
+
+            {/* VISÃO GERAL (BARBEARIA) */}
             <section className="bg-zinc-900 border border-zinc-800 rounded-3xl p-5 flex flex-col gap-4">
               <div className="flex items-center gap-2 border-b border-zinc-800 pb-3">
                 <BarChart3 className="text-amber-400" size={18} />
@@ -1480,26 +1550,108 @@ export default function BarbeiroPage() {
                   <p className="text-[10px] text-zinc-500 font-bold uppercase mb-1">
                     Faturamento Geral
                   </p>
-                  <p className="text-lg font-black text-white">
+                  <p className="text-xl font-black text-white">
                     R$ {finances.globalMesAtual.toFixed(2).replace(".", ",")}
                   </p>
+                  <div className="flex items-center gap-2 flex-wrap mt-1">
+                    <span className="text-[9px] text-zinc-500 font-bold uppercase">
+                      Ant: R${" "}
+                      {finances.globalMesPassado.toFixed(2).replace(".", ",")}
+                    </span>
+                    {renderGrowth(
+                      finances.globalMesAtual,
+                      finances.globalMesPassado,
+                    )}
+                  </div>
                 </div>
                 <div>
                   <p className="text-[10px] text-zinc-500 font-bold uppercase mb-1">
-                    Total de Atendimentos
+                    Total Atendimentos
                   </p>
-                  <p className="text-lg font-black text-white">
+                  <p className="text-xl font-black text-white">
                     {finances.globalClientesMesAtual}
                   </p>
+                  <div className="flex items-center gap-2 flex-wrap mt-1">
+                    <span className="text-[9px] text-zinc-500 font-bold uppercase">
+                      Ant: {finances.globalClientesMesPassado}
+                    </span>
+                    {renderGrowth(
+                      finances.globalClientesMesAtual,
+                      finances.globalClientesMesPassado,
+                    )}
+                  </div>
                 </div>
               </div>
+              <div className="flex flex-col gap-1 mt-1 border-t border-zinc-800/60 pt-3">
+                <div className="flex justify-between text-[10px] text-zinc-400 font-bold uppercase">
+                  <span>Serviços (Planos e Cadeira):</span>
+                  <span className="text-zinc-200">
+                    R${" "}
+                    {finances.globalServicosMesAtual
+                      .toFixed(2)
+                      .replace(".", ",")}
+                  </span>
+                </div>
+                <div className="flex justify-between text-[10px] text-zinc-400 font-bold uppercase">
+                  <span>Produtos:</span>
+                  <span className="text-zinc-200">
+                    R${" "}
+                    {finances.globalProdutosMesAtual
+                      .toFixed(2)
+                      .replace(".", ",")}
+                  </span>
+                </div>
+              </div>
+
+              {/* Gráfico Geral Anual */}
+              <div className="flex justify-between gap-1 h-28 mt-4 pt-4 border-t border-zinc-800/60">
+                {finances.chartData.map((data, idx) => {
+                  const isCurrent = idx === new Date().getMonth();
+                  const height = `${(data.gen / finances.maxGen) * 100}%`;
+                  const barColor = isCurrent
+                    ? "bg-amber-400"
+                    : data.gen > 0
+                      ? "bg-zinc-600 group-hover:bg-amber-400/50"
+                      : "bg-zinc-800";
+
+                  return (
+                    <div
+                      key={data.name}
+                      className="flex flex-col items-center justify-end gap-1 flex-1 group h-full"
+                    >
+                      <div className="w-full relative h-full flex flex-col justify-end">
+                        <div
+                          className={`w-full rounded-t-sm transition-all duration-500 ${barColor}`}
+                          style={{ height: data.gen > 0 ? height : "2px" }}
+                        >
+                          <div className="absolute -top-11 left-1/2 -translate-x-1/2 bg-zinc-800 border border-zinc-700 text-white text-[9px] font-bold px-2 py-1.5 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10 flex flex-col items-center gap-0.5 shadow-xl">
+                            <span className="whitespace-nowrap text-amber-400">
+                              R$ {data.gen.toFixed(0)}
+                            </span>
+                            <span className="whitespace-nowrap text-zinc-300 text-[8px]">
+                              {data.genClients} cortes
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                      <span
+                        className={`text-[8px] font-bold uppercase ${isCurrent ? "text-amber-400" : "text-zinc-600"}`}
+                      >
+                        {data.name}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
             </section>
+
+            {/* SEUS NÚMEROS (INDIVIDUAL) */}
             <section className="flex flex-col gap-4">
               <h3 className="text-[10px] font-bold text-zinc-500 uppercase tracking-[0.2em] ml-2">
                 Seus Números
               </h3>
               <div className="grid grid-cols-2 gap-4">
-                <div className="bg-zinc-900 border border-zinc-800 p-5 rounded-3xl flex flex-col gap-2">
+                <div className="bg-zinc-900 border border-zinc-800 p-5 rounded-3xl flex flex-col gap-1">
                   <div className="flex items-center gap-2 text-zinc-500 mb-1">
                     <DollarSign size={16} className="text-amber-400" />
                     <span className="text-xs font-bold uppercase tracking-wider">
@@ -1509,24 +1661,14 @@ export default function BarbeiroPage() {
                   <div className="text-2xl font-black text-white">
                     R$ {finances.mesAtual.toFixed(2).replace(".", ",")}
                   </div>
-                  <div className="flex flex-col gap-1 mt-2 border-t border-zinc-800/60 pt-2">
-                    <div className="flex justify-between text-[10px] text-zinc-400 font-bold uppercase">
-                      <span>Serviços:</span>
-                      <span className="text-zinc-200">
-                        R${" "}
-                        {finances.servicosMesAtual.toFixed(2).replace(".", ",")}
-                      </span>
-                    </div>
-                    <div className="flex justify-between text-[10px] text-zinc-400 font-bold uppercase">
-                      <span>Produtos:</span>
-                      <span className="text-zinc-200">
-                        R${" "}
-                        {finances.produtosMesAtual.toFixed(2).replace(".", ",")}
-                      </span>
-                    </div>
+                  <div className="flex items-center gap-2 flex-wrap mt-1">
+                    <span className="text-[9px] text-zinc-500 font-bold uppercase">
+                      Ant: R$ {finances.mesPassado.toFixed(2).replace(".", ",")}
+                    </span>
+                    {renderGrowth(finances.mesAtual, finances.mesPassado)}
                   </div>
                 </div>
-                <div className="bg-zinc-900 border border-zinc-800 p-5 rounded-3xl flex flex-col gap-2">
+                <div className="bg-zinc-900 border border-zinc-800 p-5 rounded-3xl flex flex-col gap-1">
                   <div className="flex items-center gap-2 text-zinc-500 mb-1">
                     <Scissors size={16} className="text-amber-400" />
                     <span className="text-xs font-bold uppercase tracking-wider">
@@ -1536,19 +1678,65 @@ export default function BarbeiroPage() {
                   <div className="text-2xl font-black text-white">
                     {finances.clientesMesAtual}
                   </div>
-                  <div className="flex items-center gap-1 text-[10px] font-bold text-emerald-400 bg-emerald-400/10 w-fit px-2 py-1 rounded-md mt-1">
-                    <TrendingUp size={12} />+{" "}
-                    {(
-                      ((finances.clientesMesAtual -
-                        finances.clientesMesPassado) /
-                        (finances.clientesMesPassado || 1)) *
-                      100
-                    ).toFixed(0)}
-                    % vs último mês
+                  <div className="flex items-center gap-2 flex-wrap mt-1">
+                    <span className="text-[9px] text-zinc-500 font-bold uppercase">
+                      Ant: {finances.clientesMesPassado}
+                    </span>
+                    {renderGrowth(
+                      finances.clientesMesAtual,
+                      finances.clientesMesPassado,
+                    )}
                   </div>
                 </div>
               </div>
+
+              {/* Gráfico Individual Anual */}
+              <div className="bg-zinc-900 border border-zinc-800 p-5 rounded-3xl flex flex-col mt-2">
+                <h3 className="text-[10px] font-bold text-zinc-500 uppercase tracking-[0.2em] mb-4">
+                  Sua Evolução Anual (Receita e Cortes)
+                </h3>
+                <div className="flex justify-between gap-1 h-32">
+                  {finances.chartData.map((data, idx) => {
+                    const isCurrent = idx === new Date().getMonth();
+                    const height = `${(data.ind / finances.maxInd) * 100}%`;
+                    const barColor = isCurrent
+                      ? "bg-amber-400"
+                      : data.ind > 0
+                        ? "bg-zinc-600 group-hover:bg-amber-400/50"
+                        : "bg-zinc-800";
+
+                    return (
+                      <div
+                        key={data.name}
+                        className="flex flex-col items-center justify-end gap-1 flex-1 group h-full"
+                      >
+                        <div className="w-full relative h-full flex flex-col justify-end">
+                          <div
+                            className={`w-full rounded-t-sm transition-all duration-500 ${barColor}`}
+                            style={{ height: data.ind > 0 ? height : "2px" }}
+                          >
+                            <div className="absolute -top-11 left-1/2 -translate-x-1/2 bg-zinc-800 border border-zinc-700 text-white text-[9px] font-bold px-2 py-1.5 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10 flex flex-col items-center gap-0.5 shadow-xl">
+                              <span className="whitespace-nowrap text-amber-400">
+                                R$ {data.ind.toFixed(0)}
+                              </span>
+                              <span className="whitespace-nowrap text-zinc-300 text-[8px]">
+                                {data.indClients} cortes
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                        <span
+                          className={`text-[8px] font-bold uppercase ${isCurrent ? "text-amber-400" : "text-zinc-600"}`}
+                        >
+                          {data.name}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
             </section>
+
             <section className="mt-2">
               <div className="flex justify-between items-center mb-4">
                 <h3 className="text-[10px] font-bold text-zinc-500 uppercase tracking-[0.2em]">
@@ -1636,7 +1824,7 @@ export default function BarbeiroPage() {
           </div>
         )}
 
-        {/* GESTÃO & CRM AVANÇADO */}
+        {/* GESTÃO & CRM */}
         {activeTab === "gestao" && (
           <div className="flex flex-col gap-6 animate-in fade-in duration-500">
             {gestaoView === "menu" && (
