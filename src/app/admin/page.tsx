@@ -18,7 +18,7 @@ import {
   Scissors,
   ArrowLeft,
   ChevronRight,
-  LineChart
+  LineChart,
 } from "lucide-react";
 
 const timeToMinutes = (timeStr: string): number => {
@@ -35,51 +35,122 @@ const isPast = (dateStr: string, timeStr: string) => {
   return now > apptDate;
 };
 
-type Appointment = { id: string; service: string; date: string; time: string; status: string; price_applied: number; profiles: { name: string }; barbers: { display_name: string }; created_at: string; barber_id: string; };
+type Appointment = {
+  id: string;
+  service: string;
+  date: string;
+  time: string;
+  status: string;
+  price_applied: number;
+  profiles: { name: string };
+  barbers: { display_name: string };
+  created_at: string;
+  barber_id: string;
+};
 type Barber = { id: string; display_name: string; user_id: string };
-type UserProfile = { id: string; name: string; role: string; created_at: string; phone: string; is_ghost: boolean; };
-type BarberService = { id: string; name: string; price: number; duration: number; };
-type ClientPlan = { id: string; plan_name: string; price_paid: number; status: string; barber_id: string; };
+type UserProfile = {
+  id: string;
+  name: string;
+  role: string;
+  created_at: string;
+  phone: string;
+  is_ghost: boolean;
+};
+type BarberService = {
+  id: string;
+  name: string;
+  price: number;
+  duration: number;
+};
+type ClientPlan = {
+  id: string;
+  plan_name: string;
+  price_paid: number;
+  status: string;
+  barber_id: string;
+  created_at: string;
+};
 
 export default function AdminPage() {
   const router = useRouter();
   const supabase = createClient();
 
-  const [profile, setProfile] = useState<{ name: string; id: string; role: string } | null>(null);
+  const [profile, setProfile] = useState<{
+    name: string;
+    id: string;
+    role: string;
+  } | null>(null);
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [barbers, setBarbers] = useState<Barber[]>([]);
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [servicesList, setServicesList] = useState<BarberService[]>([]);
   const [clientPlans, setClientPlans] = useState<ClientPlan[]>([]);
-  
-  const [activeTab, setActiveTab] = useState<"overview" | "team" | "users" | "audit">("overview");
+
+  const [activeTab, setActiveTab] = useState<
+    "overview" | "team" | "users" | "audit"
+  >("overview");
   const [selectedBarber, setSelectedBarber] = useState<Barber | null>(null);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [searchUser, setSearchUser] = useState("");
   const [loading, setLoading] = useState(true);
 
   const [showModal, setShowModal] = useState(false);
-  const [form, setForm] = useState({ barberId: "", service: "", date: "", time: "" });
+  const [form, setForm] = useState({
+    barberId: "",
+    service: "",
+    date: "",
+    time: "",
+  });
   const [saving, setSaving] = useState(false);
 
   const todayStr = new Date().toISOString().split("T")[0];
-  const firstDayThisMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split("T")[0];
+  const firstDayThisMonth = new Date(
+    new Date().getFullYear(),
+    new Date().getMonth(),
+    1,
+  )
+    .toISOString()
+    .split("T")[0];
 
   useEffect(() => {
     async function load() {
-      const { data: { user } } = await supabase.auth.getUser();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
       if (!user) return router.push("/login");
 
-      const { data: prof } = await supabase.from("profiles").select("id, name, role").eq("id", user.id).single();
+      const { data: prof } = await supabase
+        .from("profiles")
+        .select("id, name, role")
+        .eq("id", user.id)
+        .single();
       if (prof?.role !== "admin") return router.push("/cliente");
       setProfile(prof);
 
-      const [{ data: barb }, { data: usr }, { data: svcs }, { data: plans }, { data: appts }] = await Promise.all([
+      const [
+        { data: barb },
+        { data: usr },
+        { data: svcs },
+        { data: plans },
+        { data: appts },
+      ] = await Promise.all([
         supabase.from("barbers").select("id, display_name, user_id"),
-        supabase.from("profiles").select("id, name, phone, role, created_at, is_ghost").order("created_at", { ascending: false }),
+        supabase
+          .from("profiles")
+          .select("id, name, phone, role, created_at, is_ghost")
+          .order("created_at", { ascending: false }),
         supabase.from("services").select("*").order("name"),
-        supabase.from("client_plans").select("id, plan_name, price_paid, status, barber_id"),
-        supabase.from("appointments").select("id, service, date, time, status, price_applied, barber_id, created_at, profiles(name), barbers(display_name)").gte("date", firstDayThisMonth).order("date", { ascending: false }).order("time", { ascending: false })
+        supabase
+          .from("client_plans")
+          .select("id, plan_name, price_paid, status, barber_id, created_at"),
+        supabase
+          .from("appointments")
+          .select(
+            "id, service, date, time, status, price_applied, barber_id, created_at, profiles(name), barbers(display_name)",
+          )
+          .gte("date", firstDayThisMonth)
+          .order("date", { ascending: false })
+          .order("time", { ascending: false }),
       ]);
 
       setBarbers(barb || []);
@@ -93,11 +164,12 @@ export default function AdminPage() {
   }, []);
 
   async function handleCreateAppointment() {
-    if (!form.barberId || !form.service || !form.date || !form.time) return alert("Preencha todos os campos!");
+    if (!form.barberId || !form.service || !form.date || !form.time)
+      return alert("Preencha todos os campos!");
     setSaving(true);
-    
+
     const isencaoTag = `ADMIN: ${form.service}`;
-    
+
     const { error } = await supabase.from("appointments").insert({
       client_id: profile?.id,
       barber_id: form.barberId,
@@ -105,229 +177,433 @@ export default function AdminPage() {
       date: form.date,
       time: form.time,
       status: "confirmed",
-      price_applied: 0
+      price_applied: 0,
     });
 
     if (error) {
       alert("Erro ao agendar: " + error.message);
     } else {
       alert("Agendamento VIP realizado com sucesso!");
-      setShowModal(false); setForm({ barberId: "", service: "", date: "", time: "" });
-      const { data: newAppts } = await supabase.from("appointments").select("id, service, date, time, status, price_applied, barber_id, created_at, profiles(name), barbers(display_name)").gte("date", firstDayThisMonth).order("date", { ascending: false }).order("time", { ascending: false });
+      setShowModal(false);
+      setForm({ barberId: "", service: "", date: "", time: "" });
+      const { data: newAppts } = await supabase
+        .from("appointments")
+        .select(
+          "id, service, date, time, status, price_applied, barber_id, created_at, profiles(name), barbers(display_name)",
+        )
+        .gte("date", firstDayThisMonth)
+        .order("date", { ascending: false })
+        .order("time", { ascending: false });
       setAppointments((newAppts as any) || []);
     }
     setSaving(false);
   }
 
   function getActualPrice(appt: Appointment) {
-    if (appt.service.startsWith("PLANO:") || appt.service.startsWith("ADMIN:") || appt.service.startsWith("BLOQUEIO")) return 0;
-    if (appt.price_applied !== null && appt.price_applied > 0) return Number(appt.price_applied);
-    
+    if (
+      appt.service.startsWith("PLANO:") ||
+      appt.service.startsWith("ADMIN:") ||
+      appt.service.startsWith("BLOQUEIO")
+    )
+      return 0;
+    if (appt.price_applied !== null && appt.price_applied > 0)
+      return Number(appt.price_applied);
+
     let svcName = appt.service;
-    if (svcName.startsWith("MANUAL:")) svcName = svcName.split(" - ")[1] || svcName;
-    const svc = servicesList.find(s => s.name === svcName);
+    if (svcName.startsWith("MANUAL:"))
+      svcName = svcName.split(" - ")[1] || svcName;
+    const svc = servicesList.find((s) => s.name === svcName);
     return svc ? svc.price : 0;
   }
 
   // --- MATEMÁTICA: REALIZADO vs PROJETADO ---
-  const activePlans = clientPlans.filter(p => p.status === 'active');
+  const activePlans = clientPlans.filter((p) => p.status === "active");
   const mrr = activePlans.reduce((sum, p) => sum + Number(p.price_paid), 0);
-  
-  const projectedAppts = appointments.filter(a => a.status === "confirmed" || a.status === "completed");
-  const realizedAppts = projectedAppts.filter(a => a.status === "completed" || (a.status === "confirmed" && isPast(a.date, a.time)));
 
-  const revenueCadeirasRealizado = realizedAppts.reduce((sum, a) => sum + getActualPrice(a), 0);
-  const revenueCadeirasProjetado = projectedAppts.reduce((sum, a) => sum + getActualPrice(a), 0);
+  const plansThisMonth = clientPlans.filter(
+    (p) => p.created_at && p.created_at.split("T")[0] >= firstDayThisMonth,
+  );
+  const revenuePlanosMes = plansThisMonth.reduce(
+    (sum, p) => sum + Number(p.price_paid),
+    0,
+  );
 
-  const totalRealizado = mrr + revenueCadeirasRealizado;
-  const totalProjetado = mrr + revenueCadeirasProjetado;
+  const projectedAppts = appointments.filter(
+    (a) => a.status === "confirmed" || a.status === "completed",
+  );
+  const realizedAppts = projectedAppts.filter(
+    (a) =>
+      a.status === "completed" ||
+      (a.status === "confirmed" && isPast(a.date, a.time)),
+  );
+
+  const revenueCadeirasRealizado = realizedAppts.reduce(
+    (sum, a) => sum + getActualPrice(a),
+    0,
+  );
+  const revenueCadeirasProjetado = projectedAppts.reduce(
+    (sum, a) => sum + getActualPrice(a),
+    0,
+  );
+
+  const totalRealizado = revenuePlanosMes + revenueCadeirasRealizado;
+  const totalProjetado = revenuePlanosMes + revenueCadeirasProjetado;
 
   const barberStats = barbers.map((b) => {
     const bProjectedAppts = projectedAppts.filter((a) => a.barber_id === b.id);
     const bRealizedAppts = realizedAppts.filter((a) => a.barber_id === b.id);
 
-    const bRevProjetado = bProjectedAppts.reduce((sum, a) => sum + getActualPrice(a), 0);
-    const bRevRealizado = bRealizedAppts.reduce((sum, a) => sum + getActualPrice(a), 0);
+    const bPlansThisMonth = plansThisMonth.filter((p) => p.barber_id === b.id);
+    const bRevenuePlanosMes = bPlansThisMonth.reduce(
+      (sum, p) => sum + Number(p.price_paid),
+      0,
+    );
 
-    return { 
-      ...b, 
-      countRealized: bRealizedAppts.length, 
-      countProjected: bProjectedAppts.length, 
-      revenueRealizado: bRevRealizado, 
-      revenueProjetado: bRevProjetado, 
-      appts: bProjectedAppts 
+    const bRevProjetado = bProjectedAppts.reduce(
+      (sum, a) => sum + getActualPrice(a),
+      0,
+    );
+    const bRevRealizado = bRealizedAppts.reduce(
+      (sum, a) => sum + getActualPrice(a),
+      0,
+    );
+
+    return {
+      ...b,
+      countRealized: bRealizedAppts.length,
+      countProjected: bProjectedAppts.length,
+      revenueRealizado: bRevRealizado + bRevenuePlanosMes,
+      revenueProjetado: bRevProjetado + bRevenuePlanosMes,
+      appts: bProjectedAppts,
     };
   });
 
-  const filteredUsers = users.filter(u => u.name?.toLowerCase().includes(searchUser.toLowerCase()) || u.phone?.includes(searchUser));
+  const filteredUsers = users.filter(
+    (u) =>
+      u.name?.toLowerCase().includes(searchUser.toLowerCase()) ||
+      u.phone?.includes(searchUser),
+  );
 
   function roleLabel(role: string) {
-    if (role === "admin") return { label: "Admin", cls: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" };
-    if (role === "barbers" || role === "barber") return { label: "Barbeiro", cls: "bg-amber-500/10 text-amber-400 border-amber-500/20" };
-    return { label: "Cliente", cls: "bg-zinc-800 text-zinc-400 border-zinc-700" };
+    if (role === "admin")
+      return {
+        label: "Admin",
+        cls: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
+      };
+    if (role === "barbers" || role === "barber")
+      return {
+        label: "Barbeiro",
+        cls: "bg-amber-500/10 text-amber-400 border-amber-500/20",
+      };
+    return {
+      label: "Cliente",
+      cls: "bg-zinc-800 text-zinc-400 border-zinc-700",
+    };
   }
 
   async function changeRole(userId: string, newRole: string) {
-    if(!confirm(`Deseja promover este usuário a ${newRole.toUpperCase()}?`)) return;
+    if (!confirm(`Deseja promover este usuário a ${newRole.toUpperCase()}?`))
+      return;
     setLoading(true);
     try {
       const res = await fetch(`${window.location.origin}/api/update-role`, {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ userId, newRole }),
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId, newRole }),
       });
       if (res.ok) {
-        setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, role: newRole } : u)));
+        setUsers((prev) =>
+          prev.map((u) => (u.id === userId ? { ...u, role: newRole } : u)),
+        );
         alert(`Sucesso! Agora o perfil é: ${newRole}`);
       } else {
-        const result = await res.json(); alert(`Erro no servidor: ${result.error || "Falha desconhecida"}`);
+        const result = await res.json();
+        alert(`Erro no servidor: ${result.error || "Falha desconhecida"}`);
       }
-    } catch (e) { alert("Erro ao conectar com a API."); } 
-    finally { setLoading(false); }
+    } catch (e) {
+      alert("Erro ao conectar com a API.");
+    } finally {
+      setLoading(false);
+    }
   }
 
-  async function handleLogout() { await supabase.auth.signOut(); router.push("/login"); }
+  async function handleLogout() {
+    await supabase.auth.signOut();
+    router.push("/login");
+  }
 
-  const SidebarItem = ({ icon: Icon, label, id }: { icon: any, label: string, id: any }) => (
-    <button onClick={() => { setActiveTab(id); setSelectedBarber(null); setIsMobileMenuOpen(false); }} className={`flex items-center gap-3 w-full px-4 py-3 rounded-xl font-bold transition-all text-sm ${activeTab === id && !selectedBarber ? "bg-amber-400 text-zinc-950 shadow-md" : "text-zinc-400 hover:text-white hover:bg-zinc-900"}`}>
-      <Icon size={18} strokeWidth={activeTab === id && !selectedBarber ? 2.5 : 2} /> {label}
+  const SidebarItem = ({
+    icon: Icon,
+    label,
+    id,
+  }: {
+    icon: any;
+    label: string;
+    id: any;
+  }) => (
+    <button
+      onClick={() => {
+        setActiveTab(id);
+        setSelectedBarber(null);
+        setIsMobileMenuOpen(false);
+      }}
+      className={`flex items-center gap-3 w-full px-4 py-3 rounded-xl font-bold transition-all text-sm ${activeTab === id && !selectedBarber ? "bg-amber-400 text-zinc-950 shadow-md" : "text-zinc-400 hover:text-white hover:bg-zinc-900"}`}
+    >
+      <Icon
+        size={18}
+        strokeWidth={activeTab === id && !selectedBarber ? 2.5 : 2}
+      />{" "}
+      {label}
     </button>
   );
 
-  if (loading) return (<main className="min-h-screen bg-zinc-950 flex items-center justify-center"><div className="w-8 h-8 border-4 border-amber-400 border-t-transparent rounded-full animate-spin"></div></main>);
+  if (loading)
+    return (
+      <main className="min-h-screen bg-zinc-950 flex items-center justify-center">
+        <div className="w-8 h-8 border-4 border-amber-400 border-t-transparent rounded-full animate-spin"></div>
+      </main>
+    );
 
   return (
     <main className="min-h-screen bg-zinc-950 text-white flex flex-col md:flex-row font-sans">
-      
-      <header className="md:hidden bg-zinc-900 border-b border-zinc-800 p-4 flex justify-between items-center sticky top-0 z-40">
+      {/* HEADER MOBILE AJUSTADO */}
+      <header className="md:hidden bg-zinc-900 border-b border-zinc-800 p-3 flex justify-between items-center sticky top-0 z-40">
         <div className="flex items-center gap-2">
-          <ShieldCheck className="text-amber-400" size={24} />
-          <span className="font-black italic text-lg tracking-tight">Command Center</span>
+          <ShieldCheck className="text-amber-400" size={20} />
+          <span className="font-black italic text-base tracking-tight">
+            Command Center
+          </span>
         </div>
-        <button onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)} className="text-zinc-400">
-          {isMobileMenuOpen ? <X size={24} /> : <Menu size={24} />}
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setShowModal(true)}
+            className="bg-amber-400 text-zinc-950 p-1.5 rounded-lg flex items-center justify-center hover:scale-105 transition-transform"
+          >
+            <Plus size={18} strokeWidth={3} />
+          </button>
+          <button
+            onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+            className="text-zinc-400 hover:text-white transition-colors p-1"
+          >
+            {isMobileMenuOpen ? <X size={22} /> : <Menu size={22} />}
+          </button>
+        </div>
       </header>
 
-      <aside className={`${isMobileMenuOpen ? "flex" : "hidden"} md:flex flex-col w-full md:w-64 bg-zinc-950 border-r border-zinc-800 fixed md:sticky top-[73px] md:top-0 h-[calc(100vh-73px)] md:h-screen z-30 p-4`}>
-        <div className="hidden md:flex items-center gap-2 px-2 py-4 mb-6 border-b border-zinc-800">
-          <div className="bg-amber-400 p-2 rounded-xl text-zinc-950"><ShieldCheck size={20} strokeWidth={2.5} /></div>
+      {/* SIDEBAR DESKTOP & MOBILE MENU */}
+      <aside
+        className={`${isMobileMenuOpen ? "flex" : "hidden"} md:flex flex-col w-full md:w-64 bg-zinc-950 border-r border-zinc-800 fixed md:sticky top-[61px] md:top-0 h-[calc(100vh-61px)] md:h-screen z-30 p-4`}
+      >
+        <div className="hidden md:flex items-center gap-2 px-2 py-4 mb-4 border-b border-zinc-800">
+          <div className="bg-amber-400 p-2 rounded-xl text-zinc-950">
+            <ShieldCheck size={20} strokeWidth={2.5} />
+          </div>
           <div>
-            <h1 className="font-black italic leading-none tracking-tight">Command Center</h1>
-            <p className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest mt-0.5">Admin Level</p>
+            <h1 className="font-black italic leading-none tracking-tight">
+              Command Center
+            </h1>
+            <p className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest mt-0.5">
+              Admin Level
+            </p>
           </div>
         </div>
-        
-        <nav className="flex flex-col gap-2 flex-1">
-          <SidebarItem icon={LayoutDashboard} label="Visão Geral" id="overview" />
+
+        {/* BOTÃO VIP DESKTOP */}
+        <button
+          onClick={() => setShowModal(true)}
+          className="hidden md:flex items-center justify-center gap-2 w-full px-4 py-3 mb-6 bg-amber-400 text-zinc-950 hover:bg-amber-300 rounded-xl font-black uppercase text-[10px] tracking-widest transition-all shadow-[0_4px_15px_rgba(251,191,36,0.15)]"
+        >
+          <Plus size={16} strokeWidth={3} /> Agendamento VIP
+        </button>
+
+        <nav className="flex flex-col gap-1 flex-1">
+          <SidebarItem
+            icon={LayoutDashboard}
+            label="Visão Geral"
+            id="overview"
+          />
           <SidebarItem icon={Users} label="A Sociedade" id="team" />
           <SidebarItem icon={Search} label="Usuários" id="users" />
           <SidebarItem icon={Activity} label="Auditoria" id="audit" />
         </nav>
 
         <div className="border-t border-zinc-800 pt-4 mt-auto flex flex-col gap-2">
-          <button onClick={() => setShowModal(true)} className="flex items-center justify-center gap-2 w-full px-4 py-3 bg-zinc-900 border border-zinc-700 hover:border-amber-400 rounded-xl font-bold text-sm text-white transition-all group">
-            <Plus size={16} className="text-amber-400 group-hover:scale-125 transition-transform" /> Agendamento VIP
-          </button>
-          <button onClick={handleLogout} className="flex items-center gap-3 w-full px-4 py-3 rounded-xl font-bold text-sm text-zinc-500 hover:text-red-400 hover:bg-red-950/20 transition-all">
+          <button
+            onClick={handleLogout}
+            className="flex items-center gap-3 w-full px-4 py-3 rounded-xl font-bold text-sm text-zinc-500 hover:text-red-400 hover:bg-red-950/20 transition-all"
+          >
             <LogOut size={18} /> Sair
           </button>
         </div>
       </aside>
 
-      <section className="flex-1 p-4 md:p-8 overflow-y-auto max-w-6xl w-full mx-auto pb-24 md:pb-8">
-        
+      {/* ÁREA PRINCIPAL COM COMPACTAÇÃO RESPONSIVA */}
+      <section className="flex-1 p-4 md:p-8 max-w-6xl w-full mx-auto pb-12">
         {/* --- ABA 1: VISÃO GERAL --- */}
         {activeTab === "overview" && (
-          <div className="flex flex-col gap-6 animate-in fade-in duration-300">
+          <div className="flex flex-col gap-4 md:gap-6 animate-in fade-in duration-300">
             <div>
-              <h2 className="text-2xl font-bold tracking-tight">Métricas Globais (Mês Atual)</h2>
-              <p className="text-sm text-zinc-500 mt-1">A saúde financeira e operacional da barbearia.</p>
+              <h2 className="text-xl md:text-2xl font-bold tracking-tight">
+                Métricas Globais (Mês Atual)
+              </h2>
+              <p className="text-xs md:text-sm text-zinc-500 mt-1">
+                A saúde financeira e operacional da barbearia (Realizado).
+              </p>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              
-              <div className="bg-zinc-900 border border-zinc-800 p-6 rounded-3xl relative overflow-hidden group shadow-lg">
-                <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity"><TrendingUp size={80} /></div>
-                <h3 className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-2 flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span> Faturamento Realizado
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4">
+              <div className="bg-zinc-900 border border-zinc-800 p-4 md:p-6 rounded-2xl md:rounded-[1.5rem] relative overflow-hidden group shadow-lg">
+                <TrendingUp className="absolute top-2 right-2 md:top-4 md:right-4 w-12 h-12 md:w-20 md:h-20 opacity-10 group-hover:opacity-20 transition-opacity" />
+                <h3 className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-1 md:mb-2 flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>{" "}
+                  Faturamento Realizado
                 </h3>
-                <div className="text-4xl font-black text-white">R$ {totalRealizado.toFixed(2).replace(".", ",")}</div>
-                <div className="mt-4 pt-4 border-t border-zinc-800/60 flex flex-col gap-1">
-                  <div className="flex justify-between text-xs"><span className="text-zinc-500">Cadeiras Executadas:</span> <span className="font-semibold text-white">R$ {revenueCadeirasRealizado.toFixed(2).replace(".", ",")}</span></div>
-                  <div className="flex justify-between text-xs"><span className="text-zinc-500">MRR (Assinaturas):</span> <span className="font-semibold text-emerald-400">R$ {mrr.toFixed(2).replace(".", ",")}</span></div>
+                <div className="text-2xl md:text-4xl font-black text-white">
+                  R$ {totalRealizado.toFixed(2).replace(".", ",")}
                 </div>
-              </div>
-              
-              <div className="bg-zinc-900 border border-zinc-800 p-6 rounded-3xl relative overflow-hidden group shadow-lg">
-                <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity"><LineChart size={80} /></div>
-                <h3 className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-2">Previsão do Mês (Projetado)</h3>
-                <div className="text-4xl font-black text-amber-400">R$ {totalProjetado.toFixed(2).replace(".", ",")}</div>
-                <div className="mt-4 pt-4 border-t border-zinc-800/60 flex flex-col gap-1">
-                  <div className="flex justify-between text-xs"><span className="text-zinc-500">Cadeiras Agendadas + Realizadas:</span> <span className="font-semibold text-amber-400">R$ {revenueCadeirasProjetado.toFixed(2).replace(".", ",")}</span></div>
-                  <div className="flex justify-between text-xs"><span className="text-zinc-500">MRR (Assinaturas):</span> <span className="font-semibold text-emerald-400">R$ {mrr.toFixed(2).replace(".", ",")}</span></div>
-                </div>
-              </div>
-
-              <div className="bg-zinc-900 border border-zinc-800 p-6 rounded-3xl relative overflow-hidden group shadow-lg">
-                <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity"><CreditCard size={64} /></div>
-                <h3 className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-2">Receita Recorrente (MRR)</h3>
-                <div className="text-3xl font-black text-emerald-400">R$ {mrr.toFixed(2).replace(".", ",")}</div>
-                <div className="mt-4 pt-4 border-t border-zinc-800/60 flex items-center justify-between">
-                  <span className="text-xs text-zinc-500">Planos Ativos e Saudáveis</span>
-                  <span className="text-sm font-bold text-white bg-zinc-800 px-2 py-1 rounded-md">{activePlans.length}</span>
+                <div className="mt-3 md:mt-4 pt-3 md:pt-4 border-t border-zinc-800/60 flex flex-col gap-1">
+                  <div className="flex justify-between text-xs">
+                    <span className="text-zinc-500">Cadeiras Executadas:</span>{" "}
+                    <span className="font-semibold text-white">
+                      R$ {revenueCadeirasRealizado.toFixed(2).replace(".", ",")}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-zinc-500">
+                      Planos Vendidos no Mês:
+                    </span>{" "}
+                    <span className="font-semibold text-emerald-400">
+                      R$ {revenuePlanosMes.toFixed(2).replace(".", ",")}
+                    </span>
+                  </div>
                 </div>
               </div>
 
-              <div className="bg-zinc-900 border border-zinc-800 p-6 rounded-3xl relative overflow-hidden group shadow-lg">
-                <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity"><Scissors size={64} /></div>
-                <h3 className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-2">Tráfego de Cadeiras</h3>
+              <div className="bg-zinc-900 border border-zinc-800 p-4 md:p-6 rounded-2xl md:rounded-[1.5rem] relative overflow-hidden group shadow-lg">
+                <LineChart className="absolute top-2 right-2 md:top-4 md:right-4 w-12 h-12 md:w-20 md:h-20 opacity-10 group-hover:opacity-20 transition-opacity" />
+                <h3 className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-1 md:mb-2">
+                  Previsão do Mês (Projetado)
+                </h3>
+                <div className="text-2xl md:text-4xl font-black text-amber-400">
+                  R$ {totalProjetado.toFixed(2).replace(".", ",")}
+                </div>
+                <div className="mt-3 md:mt-4 pt-3 md:pt-4 border-t border-zinc-800/60 flex flex-col gap-1">
+                  <div className="flex justify-between text-xs">
+                    <span className="text-zinc-500">
+                      Cadeiras Agendadas + Realizadas:
+                    </span>{" "}
+                    <span className="font-semibold text-amber-400">
+                      R$ {revenueCadeirasProjetado.toFixed(2).replace(".", ",")}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-zinc-500">
+                      Planos Vendidos no Mês:
+                    </span>{" "}
+                    <span className="font-semibold text-emerald-400">
+                      R$ {revenuePlanosMes.toFixed(2).replace(".", ",")}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-zinc-900 border border-zinc-800 p-4 md:p-6 rounded-2xl md:rounded-[1.5rem] relative overflow-hidden group shadow-lg">
+                <CreditCard className="absolute top-2 right-2 md:top-4 md:right-4 w-12 h-12 md:w-16 md:h-16 opacity-10 group-hover:opacity-20 transition-opacity" />
+                <h3 className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-1 md:mb-2">
+                  Receita Recorrente (MRR)
+                </h3>
+                <div className="text-2xl md:text-3xl font-black text-emerald-400">
+                  R$ {mrr.toFixed(2).replace(".", ",")}
+                </div>
+                <div className="mt-3 md:mt-4 pt-3 md:pt-4 border-t border-zinc-800/60 flex items-center justify-between">
+                  <span className="text-xs text-zinc-500">
+                    Planos Ativos e Saudáveis
+                  </span>
+                  <span className="text-xs font-bold text-white bg-zinc-800 px-2 py-0.5 md:py-1 rounded-md">
+                    {activePlans.length}
+                  </span>
+                </div>
+              </div>
+
+              <div className="bg-zinc-900 border border-zinc-800 p-4 md:p-6 rounded-2xl md:rounded-[1.5rem] relative overflow-hidden group shadow-lg">
+                <Scissors className="absolute top-2 right-2 md:top-4 md:right-4 w-12 h-12 md:w-16 md:h-16 opacity-10 group-hover:opacity-20 transition-opacity" />
+                <h3 className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-1 md:mb-2">
+                  Tráfego de Cadeiras
+                </h3>
                 <div className="flex items-baseline gap-2">
-                  <div className="text-3xl font-black text-white">{realizedAppts.length}</div>
-                  <div className="text-sm text-zinc-500 font-bold uppercase">/ {projectedAppts.length} agendados</div>
+                  <div className="text-2xl md:text-3xl font-black text-white">
+                    {realizedAppts.length}
+                  </div>
+                  <div className="text-[10px] md:text-sm text-zinc-500 font-bold uppercase">
+                    / {projectedAppts.length} agendados
+                  </div>
                 </div>
-                <div className="mt-4 pt-4 border-t border-zinc-800/60 flex items-center justify-between text-xs text-zinc-500">
+                <div className="mt-3 md:mt-4 pt-3 md:pt-4 border-t border-zinc-800/60 flex items-center justify-between text-[10px] md:text-xs text-zinc-500">
                   <span>Atendimentos Concluídos vs Previsão Mensal</span>
                 </div>
               </div>
-
             </div>
           </div>
         )}
 
         {/* --- ABA 2: A SOCIEDADE (COM GOD MODE DRILL-DOWN) --- */}
         {activeTab === "team" && (
-          <div className="flex flex-col gap-6 animate-in slide-in-from-right-4 duration-300">
+          <div className="flex flex-col gap-4 md:gap-6 animate-in slide-in-from-right-4 duration-300">
             {!selectedBarber ? (
               <>
                 <div>
-                  <h2 className="text-2xl font-bold tracking-tight">A Sociedade</h2>
-                  <p className="text-sm text-zinc-500 mt-1">Clique no card do barbeiro para ver o Raio-X exclusivo.</p>
+                  <h2 className="text-xl md:text-2xl font-bold tracking-tight">
+                    A Sociedade
+                  </h2>
+                  <p className="text-xs md:text-sm text-zinc-500 mt-1">
+                    Clique no card do barbeiro para ver o Raio-X exclusivo.
+                  </p>
                 </div>
-                
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {barberStats.map(b => (
-                    <button 
-                      key={b.id} 
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4">
+                  {barberStats.map((b) => (
+                    <button
+                      key={b.id}
                       onClick={() => setSelectedBarber(b)}
-                      className="bg-zinc-900 border border-zinc-800 p-5 rounded-3xl flex flex-col gap-4 hover:border-amber-400/50 hover:bg-zinc-800/50 transition-all text-left group shadow-lg"
+                      className="bg-zinc-900 border border-zinc-800 p-4 md:p-5 rounded-2xl md:rounded-[1.5rem] flex flex-col gap-3 md:gap-4 hover:border-amber-400/50 hover:bg-zinc-800/50 transition-all text-left group shadow-lg"
                     >
                       <div className="flex items-center gap-3 w-full">
-                        <div className="w-12 h-12 rounded-2xl bg-zinc-800 border border-amber-400/30 flex items-center justify-center text-amber-400 font-black text-lg group-hover:scale-110 transition-transform">
-                          {b.display_name.split(" ").map(n => n[0]).join("").slice(0, 2)}
+                        <div className="w-10 h-10 md:w-12 md:h-12 rounded-xl bg-zinc-800 border border-amber-400/30 flex items-center justify-center text-amber-400 font-black text-base md:text-lg group-hover:scale-110 transition-transform">
+                          {b.display_name
+                            .split(" ")
+                            .map((n) => n[0])
+                            .join("")
+                            .slice(0, 2)}
                         </div>
                         <div className="flex-1">
-                          <h4 className="font-bold text-white leading-tight">{b.display_name}</h4>
-                          <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider">Sócio Oficial</span>
+                          <h4 className="font-bold text-sm md:text-base text-white leading-tight">
+                            {b.display_name}
+                          </h4>
+                          <span className="text-[9px] md:text-[10px] text-zinc-500 font-bold uppercase tracking-wider">
+                            Sócio Oficial
+                          </span>
                         </div>
-                        <ChevronRight size={20} className="text-zinc-600 group-hover:text-amber-400 transition-colors" />
+                        <ChevronRight
+                          size={18}
+                          className="text-zinc-600 group-hover:text-amber-400 transition-colors"
+                        />
                       </div>
-                      <div className="grid grid-cols-2 gap-2 bg-zinc-950 p-3 rounded-2xl border border-zinc-800/50 w-full">
+                      <div className="grid grid-cols-2 gap-2 bg-zinc-950 p-2.5 md:p-3 rounded-xl md:rounded-2xl border border-zinc-800/50 w-full">
                         <div>
-                          <span className="text-[9px] text-zinc-500 font-bold uppercase block mb-1">Realizado</span>
-                          <span className="text-sm font-black text-emerald-400">R$ {b.revenueRealizado.toFixed(2).replace(".", ",")}</span>
+                          <span className="text-[8px] md:text-[9px] text-zinc-500 font-bold uppercase block mb-0.5 md:mb-1">
+                            Realizado
+                          </span>
+                          <span className="text-xs md:text-sm font-black text-emerald-400">
+                            R$ {b.revenueRealizado.toFixed(2).replace(".", ",")}
+                          </span>
                         </div>
                         <div>
-                          <span className="text-[9px] text-zinc-500 font-bold uppercase block mb-1">Projetado</span>
-                          <span className="text-sm font-black text-amber-400">R$ {b.revenueProjetado.toFixed(2).replace(".", ",")}</span>
+                          <span className="text-[8px] md:text-[9px] text-zinc-500 font-bold uppercase block mb-0.5 md:mb-1">
+                            Projetado
+                          </span>
+                          <span className="text-xs md:text-sm font-black text-amber-400">
+                            R$ {b.revenueProjetado.toFixed(2).replace(".", ",")}
+                          </span>
                         </div>
                       </div>
                     </button>
@@ -336,95 +612,171 @@ export default function AdminPage() {
               </>
             ) : (
               // --- GOD MODE: VISÃO DO BARBEIRO SELECIONADO ---
-              <div className="flex flex-col gap-6 animate-in slide-in-from-right-4 duration-300">
-                 <button onClick={() => setSelectedBarber(null)} className="flex items-center gap-2 text-zinc-500 hover:text-amber-400 transition-colors w-fit font-bold text-sm bg-zinc-900 px-4 py-2 rounded-xl border border-zinc-800">
-                   <ArrowLeft size={18} /> Voltar para Sociedade
-                 </button>
-                 
-                 <div className="flex items-center gap-4 border-b border-zinc-800 pb-4">
-                    <div className="w-16 h-16 rounded-2xl bg-zinc-800 border border-amber-400/50 flex items-center justify-center text-amber-400 font-black text-2xl shadow-lg">
-                      {selectedBarber.display_name.split(" ").map(n => n[0]).join("").slice(0, 2)}
-                    </div>
-                    <div>
-                      <h2 className="text-2xl font-black italic">{selectedBarber.display_name}</h2>
-                      <p className="text-xs font-bold text-zinc-500 uppercase tracking-widest mt-1">Raio-X de Desempenho (Este Mês)</p>
-                    </div>
-                 </div>
+              <div className="flex flex-col gap-4 md:gap-6 animate-in slide-in-from-right-4 duration-300">
+                <button
+                  onClick={() => setSelectedBarber(null)}
+                  className="flex items-center gap-2 text-zinc-400 hover:text-amber-400 transition-colors w-fit font-bold text-xs md:text-sm bg-zinc-900 px-3 py-1.5 md:px-4 md:py-2 rounded-lg border border-zinc-800"
+                >
+                  <ArrowLeft size={16} /> Voltar
+                </button>
 
-                 {(() => {
-                   const stats = barberStats.find(b => b.id === selectedBarber.id);
-                   const myPlans = activePlans.filter(p => p.barber_id === selectedBarber.id);
-                   const myMrr = myPlans.reduce((sum, p) => sum + Number(p.price_paid), 0);
+                <div className="flex items-center gap-3 md:gap-4 border-b border-zinc-800 pb-3 md:pb-4">
+                  <div className="w-12 h-12 md:w-16 md:h-16 rounded-xl md:rounded-2xl bg-zinc-800 border border-amber-400/50 flex items-center justify-center text-amber-400 font-black text-xl md:text-2xl shadow-lg">
+                    {selectedBarber.display_name
+                      .split(" ")
+                      .map((n) => n[0])
+                      .join("")
+                      .slice(0, 2)}
+                  </div>
+                  <div>
+                    <h2 className="text-xl md:text-2xl font-black italic leading-tight">
+                      {selectedBarber.display_name}
+                    </h2>
+                    <p className="text-[10px] md:text-xs font-bold text-zinc-500 uppercase tracking-widest mt-0.5 md:mt-1">
+                      Raio-X de Desempenho (Mês)
+                    </p>
+                  </div>
+                </div>
 
-                   return (
-                     <>
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                          <div className="bg-zinc-900 border border-zinc-800 p-5 rounded-3xl shadow-lg flex flex-col justify-between gap-4">
-                            <div>
-                              <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest block mb-1">Faturamento Cadeiras</span>
-                              <div className="flex items-baseline gap-2">
-                                <div className="text-2xl font-black text-emerald-400">R$ {stats?.revenueRealizado.toFixed(2).replace(".", ",")}</div>
-                              </div>
-                            </div>
-                            <div className="bg-zinc-950 p-2 rounded-lg border border-zinc-800/50 flex justify-between items-center text-[10px] font-bold uppercase tracking-wider text-zinc-400">
-                              <span>Previsão do mês:</span>
-                              <span className="text-amber-400">R$ {stats?.revenueProjetado.toFixed(2).replace(".", ",")}</span>
+                {(() => {
+                  const stats = barberStats.find(
+                    (b) => b.id === selectedBarber.id,
+                  );
+                  const myPlans = activePlans.filter(
+                    (p) => p.barber_id === selectedBarber.id,
+                  );
+                  const myMrr = myPlans.reduce(
+                    (sum, p) => sum + Number(p.price_paid),
+                    0,
+                  );
+
+                  return (
+                    <>
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 md:gap-4">
+                        <div className="bg-zinc-900 border border-zinc-800 p-4 md:p-5 rounded-2xl md:rounded-[1.5rem] shadow-lg flex flex-col justify-between gap-3 md:gap-4">
+                          <div>
+                            <span className="text-[9px] md:text-[10px] font-bold text-zinc-500 uppercase tracking-widest block mb-1">
+                              Cadeiras + Planos Vendidos
+                            </span>
+                            <div className="text-xl md:text-2xl font-black text-emerald-400">
+                              R${" "}
+                              {stats?.revenueRealizado
+                                .toFixed(2)
+                                .replace(".", ",")}
                             </div>
                           </div>
-                          
-                          <div className="bg-zinc-900 border border-zinc-800 p-5 rounded-3xl shadow-lg flex flex-col justify-between gap-4">
-                            <div>
-                              <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest block mb-1">MRR (Assinaturas Dele)</span>
-                              <div className="text-2xl font-black text-emerald-400">R$ {myMrr.toFixed(2).replace(".", ",")}</div>
-                            </div>
-                            <div className="bg-zinc-950 p-2 rounded-lg border border-zinc-800/50 flex justify-between items-center text-[10px] font-bold uppercase tracking-wider text-zinc-400">
-                              <span>Planos Ativos:</span>
-                              <span className="text-white">{myPlans.length}</span>
-                            </div>
-                          </div>
-
-                          <div className="bg-zinc-900 border border-zinc-800 p-5 rounded-3xl shadow-lg flex flex-col justify-between gap-4">
-                            <div>
-                              <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest block mb-1">Tráfego de Clientes</span>
-                              <div className="text-2xl font-black text-white">{stats?.countRealized}</div>
-                            </div>
-                            <div className="bg-zinc-950 p-2 rounded-lg border border-zinc-800/50 flex justify-between items-center text-[10px] font-bold uppercase tracking-wider text-zinc-400">
-                              <span>Previsão de Atendimentos:</span>
-                              <span className="text-white">{stats?.countProjected}</span>
-                            </div>
+                          <div className="bg-zinc-950 p-2 rounded-lg border border-zinc-800/50 flex justify-between items-center text-[9px] md:text-[10px] font-bold uppercase tracking-wider text-zinc-400">
+                            <span>Previsão do mês:</span>
+                            <span className="text-amber-400">
+                              R${" "}
+                              {stats?.revenueProjetado
+                                .toFixed(2)
+                                .replace(".", ",")}
+                            </span>
                           </div>
                         </div>
 
-                        <div className="mt-4">
-                          <h3 className="text-xs font-bold text-zinc-500 uppercase tracking-wider mb-3">Agenda Completa (Realizado e Projetado)</h3>
-                          <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 max-h-[500px] overflow-y-auto custom-scrollbar">
-                            <div className="relative border-l border-zinc-800 ml-4 pl-6 flex flex-col gap-6">
-                              {stats?.appts.map((a) => {
-                                const passed = isPast(a.date, a.time);
-                                const isRealized = a.status === "completed" || passed;
-                                return (
-                                <div key={a.id} className={`relative ${!isRealized ? 'opacity-50' : ''}`}>
-                                  <div className={`absolute -left-[31px] border-4 border-zinc-900 w-4 h-4 rounded-full mt-0.5 ${isRealized ? 'bg-emerald-500' : 'bg-amber-400'}`}></div>
+                        <div className="bg-zinc-900 border border-zinc-800 p-4 md:p-5 rounded-2xl md:rounded-[1.5rem] shadow-lg flex flex-col justify-between gap-3 md:gap-4">
+                          <div>
+                            <span className="text-[9px] md:text-[10px] font-bold text-zinc-500 uppercase tracking-widest block mb-1">
+                              MRR (Assinaturas Dele)
+                            </span>
+                            <div className="text-xl md:text-2xl font-black text-emerald-400">
+                              R$ {myMrr.toFixed(2).replace(".", ",")}
+                            </div>
+                          </div>
+                          <div className="bg-zinc-950 p-2 rounded-lg border border-zinc-800/50 flex justify-between items-center text-[9px] md:text-[10px] font-bold uppercase tracking-wider text-zinc-400">
+                            <span>Planos Ativos:</span>
+                            <span className="text-white">{myPlans.length}</span>
+                          </div>
+                        </div>
+
+                        <div className="bg-zinc-900 border border-zinc-800 p-4 md:p-5 rounded-2xl md:rounded-[1.5rem] shadow-lg flex flex-col justify-between gap-3 md:gap-4">
+                          <div>
+                            <span className="text-[9px] md:text-[10px] font-bold text-zinc-500 uppercase tracking-widest block mb-1">
+                              Tráfego de Clientes
+                            </span>
+                            <div className="text-xl md:text-2xl font-black text-white">
+                              {stats?.countRealized}
+                            </div>
+                          </div>
+                          <div className="bg-zinc-950 p-2 rounded-lg border border-zinc-800/50 flex justify-between items-center text-[9px] md:text-[10px] font-bold uppercase tracking-wider text-zinc-400">
+                            <span>Previsão de Atendimentos:</span>
+                            <span className="text-white">
+                              {stats?.countProjected}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="mt-2 md:mt-4">
+                        <h3 className="text-[10px] md:text-xs font-bold text-zinc-500 uppercase tracking-wider mb-2 md:mb-3">
+                          Agenda Completa (Realizado e Projetado)
+                        </h3>
+                        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl md:rounded-3xl p-4 md:p-6 max-h-[400px] md:max-h-[500px] overflow-y-auto custom-scrollbar">
+                          <div className="relative border-l border-zinc-800 ml-2 md:ml-4 pl-4 md:pl-6 flex flex-col gap-4 md:gap-6">
+                            {stats?.appts.map((a) => {
+                              const passed = isPast(a.date, a.time);
+                              const isRealized =
+                                a.status === "completed" || passed;
+                              return (
+                                <div
+                                  key={a.id}
+                                  className={`relative ${!isRealized ? "opacity-50" : ""}`}
+                                >
+                                  <div
+                                    className={`absolute -left-[21px] md:-left-[31px] border-4 border-zinc-900 w-3 h-3 md:w-4 md:h-4 rounded-full mt-1 ${isRealized ? "bg-emerald-500" : "bg-amber-400"}`}
+                                  ></div>
                                   <div className="flex flex-col">
-                                    <div className="flex items-center justify-between gap-4">
-                                      <div className="flex items-center gap-2">
-                                        <span className={`text-xs font-bold ${isRealized ? 'text-zinc-300' : 'text-amber-400'}`}>{a.date.split("-").reverse().slice(0,2).join("/")} às {a.time}</span>
-                                        <span className="text-[10px] font-bold text-white uppercase px-2 py-0.5 rounded bg-zinc-800 border border-zinc-700">{a.service}</span>
-                                        {!isRealized && <span className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded bg-amber-400/10 text-amber-400">A fazer</span>}
+                                    <div className="flex items-center justify-between gap-2 md:gap-4">
+                                      <div className="flex items-center gap-1.5 md:gap-2">
+                                        <span
+                                          className={`text-[10px] md:text-xs font-bold ${isRealized ? "text-zinc-300" : "text-amber-400"}`}
+                                        >
+                                          {a.date
+                                            .split("-")
+                                            .reverse()
+                                            .slice(0, 2)
+                                            .join("/")}{" "}
+                                          às {a.time}
+                                        </span>
+                                        <span className="text-[8px] md:text-[10px] font-bold text-white uppercase px-1.5 py-0.5 rounded bg-zinc-800 border border-zinc-700">
+                                          {a.service}
+                                        </span>
+                                        {!isRealized && (
+                                          <span className="text-[8px] md:text-[9px] font-bold uppercase px-1.5 py-0.5 rounded bg-amber-400/10 text-amber-400">
+                                            A fazer
+                                          </span>
+                                        )}
                                       </div>
-                                      <span className={`text-xs font-black ${isRealized ? 'text-emerald-400' : 'text-zinc-500'}`}>R$ {getActualPrice(a).toFixed(2).replace(".", ",")}</span>
+                                      <span
+                                        className={`text-[10px] md:text-xs font-black ${isRealized ? "text-emerald-400" : "text-zinc-500"}`}
+                                      >
+                                        R${" "}
+                                        {getActualPrice(a)
+                                          .toFixed(2)
+                                          .replace(".", ",")}
+                                      </span>
                                     </div>
-                                    <span className="text-sm font-semibold text-zinc-300 mt-1">{(a.profiles as any)?.name || "Cliente Fantasma"}</span>
+                                    <span className="text-xs md:text-sm font-semibold text-zinc-300 mt-1">
+                                      {(a.profiles as any)?.name ||
+                                        "Cliente Fantasma"}
+                                    </span>
                                   </div>
                                 </div>
-                              )})}
-                              {stats?.appts.length === 0 && <div className="text-zinc-500 italic text-sm py-4">Nenhum atendimento no período.</div>}
-                            </div>
+                              );
+                            })}
+                            {stats?.appts.length === 0 && (
+                              <div className="text-zinc-500 italic text-xs md:text-sm py-2 md:py-4">
+                                Nenhum atendimento no período.
+                              </div>
+                            )}
                           </div>
                         </div>
-                     </>
-                   );
-                 })()}
+                      </div>
+                    </>
+                  );
+                })()}
               </div>
             )}
           </div>
@@ -432,66 +784,106 @@ export default function AdminPage() {
 
         {/* --- ABA 3: USUÁRIOS E PERFIS --- */}
         {activeTab === "users" && (
-          <div className="flex flex-col gap-6 animate-in fade-in duration-300">
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="flex flex-col gap-4 md:gap-6 animate-in fade-in duration-300">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 md:gap-4">
               <div>
-                <h2 className="text-2xl font-bold tracking-tight">Controle de Acessos</h2>
-                <p className="text-sm text-zinc-500 mt-1">Pesquise, edite e promova perfis.</p>
+                <h2 className="text-xl md:text-2xl font-bold tracking-tight">
+                  Controle de Acessos
+                </h2>
+                <p className="text-xs md:text-sm text-zinc-500 mt-1">
+                  Pesquise, edite e promova perfis.
+                </p>
               </div>
               <div className="relative w-full md:w-72">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" size={18} />
-                <input 
-                  type="text" placeholder="Buscar nome ou telefone..." 
-                  value={searchUser} onChange={e => setSearchUser(e.target.value)}
-                  className="w-full bg-zinc-900 border border-zinc-800 rounded-xl pl-10 pr-4 py-2.5 text-sm text-white focus:outline-none focus:border-amber-400 transition-colors"
+                <Search
+                  className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500"
+                  size={16}
+                />
+                <input
+                  type="text"
+                  placeholder="Buscar nome ou telefone..."
+                  value={searchUser}
+                  onChange={(e) => setSearchUser(e.target.value)}
+                  className="w-full bg-zinc-900 border border-zinc-800 rounded-xl pl-9 pr-4 py-2 text-sm text-white focus:outline-none focus:border-amber-400 transition-colors"
                 />
               </div>
             </div>
 
             <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden overflow-x-auto shadow-lg">
               <table className="w-full text-left text-sm whitespace-nowrap">
-                <thead className="bg-zinc-950 border-b border-zinc-800 text-zinc-500 font-bold uppercase tracking-wider text-[10px]">
+                <thead className="bg-zinc-950 border-b border-zinc-800 text-zinc-500 font-bold uppercase tracking-wider text-[9px] md:text-[10px]">
                   <tr>
-                    <th className="px-6 py-4">Usuário</th>
-                    <th className="px-6 py-4">Contato</th>
-                    <th className="px-6 py-4">Status / Role</th>
-                    <th className="px-6 py-4 text-right">Ação</th>
+                    <th className="px-4 md:px-6 py-3 md:py-4">Usuário</th>
+                    <th className="px-4 md:px-6 py-3 md:py-4">Contato</th>
+                    <th className="px-4 md:px-6 py-3 md:py-4">Status / Role</th>
+                    <th className="px-4 md:px-6 py-3 md:py-4 text-right">
+                      Ação
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-zinc-800">
-                  {filteredUsers.map(u => {
+                  {filteredUsers.map((u) => {
                     const { label, cls } = roleLabel(u.role);
                     return (
-                      <tr key={u.id} className="hover:bg-zinc-800/30 transition-colors">
-                        <td className="px-6 py-4">
-                          <div className="font-bold text-white flex items-center gap-2">
+                      <tr
+                        key={u.id}
+                        className="hover:bg-zinc-800/30 transition-colors"
+                      >
+                        <td className="px-4 md:px-6 py-3 md:py-4">
+                          <div className="font-bold text-white text-xs md:text-sm flex items-center gap-2">
                             {u.name}
-                            {u.is_ghost && <span className="bg-zinc-800 border border-zinc-700 text-[9px] px-1.5 py-0.5 rounded text-zinc-400 uppercase">Balcão</span>}
+                            {u.is_ghost && (
+                              <span className="bg-zinc-800 border border-zinc-700 text-[8px] md:text-[9px] px-1.5 py-0.5 rounded text-zinc-400 uppercase">
+                                Balcão
+                              </span>
+                            )}
                           </div>
-                          <div className="text-[10px] text-zinc-500 mt-0.5">Criado em {u.created_at.split("T")[0].split("-").reverse().join("/")}</div>
+                          <div className="text-[9px] md:text-[10px] text-zinc-500 mt-0.5">
+                            Criado em{" "}
+                            {u.created_at
+                              .split("T")[0]
+                              .split("-")
+                              .reverse()
+                              .join("/")}
+                          </div>
                         </td>
-                        <td className="px-6 py-4 text-zinc-400 font-mono text-xs">{u.phone || "---"}</td>
-                        <td className="px-6 py-4">
-                          <span className={`text-[10px] px-2 py-1 rounded-md font-bold uppercase tracking-wider border ${cls}`}>{label}</span>
+                        <td className="px-4 md:px-6 py-3 md:py-4 text-zinc-400 font-mono text-[10px] md:text-xs">
+                          {u.phone || "---"}
                         </td>
-                        <td className="px-6 py-4 text-right">
+                        <td className="px-4 md:px-6 py-3 md:py-4">
+                          <span
+                            className={`text-[9px] md:text-[10px] px-1.5 md:px-2 py-0.5 md:py-1 rounded-md font-bold uppercase tracking-wider border ${cls}`}
+                          >
+                            {label}
+                          </span>
+                        </td>
+                        <td className="px-4 md:px-6 py-3 md:py-4 text-right">
                           {u.role !== "admin" && (
                             <select
                               value={u.role}
                               onChange={(e) => changeRole(u.id, e.target.value)}
-                              className="bg-zinc-950 border border-zinc-700 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-amber-400 cursor-pointer"
+                              className="bg-zinc-950 border border-zinc-700 rounded-lg px-2 py-1 md:py-1.5 text-[10px] md:text-xs text-white focus:outline-none focus:border-amber-400 cursor-pointer"
                             >
                               <option value="client">Manter Cliente</option>
-                              <option value="barbers">Promover a Barbeiro</option>
+                              <option value="barbers">
+                                Promover a Barbeiro
+                              </option>
                               <option value="admin">Promover a Admin</option>
                             </select>
                           )}
                         </td>
                       </tr>
-                    )
+                    );
                   })}
                   {filteredUsers.length === 0 && (
-                    <tr><td colSpan={4} className="px-6 py-8 text-center text-zinc-500 italic">Nenhum usuário encontrado.</td></tr>
+                    <tr>
+                      <td
+                        colSpan={4}
+                        className="px-4 md:px-6 py-6 md:py-8 text-center text-zinc-500 italic text-xs md:text-sm"
+                      >
+                        Nenhum usuário encontrado.
+                      </td>
+                    </tr>
                   )}
                 </tbody>
               </table>
@@ -501,29 +893,53 @@ export default function AdminPage() {
 
         {/* --- ABA 4: AUDITORIA (LOG) --- */}
         {activeTab === "audit" && (
-          <div className="flex flex-col gap-6 animate-in fade-in duration-300">
+          <div className="flex flex-col gap-4 md:gap-6 animate-in fade-in duration-300">
             <div>
-              <h2 className="text-2xl font-bold tracking-tight">Log de Auditoria</h2>
-              <p className="text-sm text-zinc-500 mt-1">Timeline de movimentação da agenda (Mês Atual).</p>
+              <h2 className="text-xl md:text-2xl font-bold tracking-tight">
+                Log de Auditoria
+              </h2>
+              <p className="text-xs md:text-sm text-zinc-500 mt-1">
+                Timeline de movimentação da agenda (Mês Atual).
+              </p>
             </div>
-            
-            <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 shadow-lg">
-              <div className="relative border-l border-zinc-800 ml-4 pl-6 flex flex-col gap-8">
+
+            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl md:rounded-3xl p-4 md:p-6 shadow-lg">
+              <div className="relative border-l border-zinc-800 ml-2 md:ml-4 pl-4 md:pl-6 flex flex-col gap-6 md:gap-8">
                 {appointments.slice(0, 50).map((a, i) => (
                   <div key={a.id} className="relative">
-                    <div className="absolute -left-[31px] bg-zinc-800 border-4 border-zinc-900 w-4 h-4 rounded-full mt-1.5"></div>
+                    <div className="absolute -left-[21px] md:-left-[31px] bg-zinc-800 border-4 border-zinc-900 w-3 h-3 md:w-4 md:h-4 rounded-full mt-1.5"></div>
                     <div className="flex flex-col gap-1">
                       <div className="flex items-center gap-2">
-                        <span className="text-xs font-bold text-amber-400">{a.date.split("-").reverse().slice(0,2).join("/")} às {a.time}</span>
-                        <span className="text-[10px] text-zinc-500 font-mono bg-zinc-950 px-1.5 py-0.5 rounded border border-zinc-800">Ref: {a.id.split("-")[0]}</span>
+                        <span className="text-[10px] md:text-xs font-bold text-amber-400">
+                          {a.date.split("-").reverse().slice(0, 2).join("/")} às{" "}
+                          {a.time}
+                        </span>
+                        <span className="text-[8px] md:text-[10px] text-zinc-500 font-mono bg-zinc-950 px-1.5 py-0.5 rounded border border-zinc-800">
+                          Ref: {a.id.split("-")[0]}
+                        </span>
                       </div>
-                      <div className="text-sm text-zinc-300">
-                        <span className="font-bold text-white">{(a.profiles as any)?.name || "Balcão (Fantasma)"}</span> agendado com <span className="font-bold text-white">{(a.barbers as any)?.display_name}</span>.
+                      <div className="text-xs md:text-sm text-zinc-300">
+                        <span className="font-bold text-white">
+                          {(a.profiles as any)?.name || "Balcão (Fantasma)"}
+                        </span>{" "}
+                        agendado com{" "}
+                        <span className="font-bold text-white">
+                          {(a.barbers as any)?.display_name}
+                        </span>
+                        .
                       </div>
                       <div className="flex gap-2 items-center mt-1">
-                         <span className="text-[10px] font-bold text-white bg-zinc-800 border border-zinc-700 px-2 py-0.5 rounded">{a.service}</span>
-                         <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded ${a.status === 'confirmed' || a.status === 'completed' ? 'text-emerald-400 bg-emerald-400/10' : a.status === 'canceled' ? 'text-red-400 bg-red-400/10' : 'text-orange-400 bg-orange-400/10'}`}>{a.status}</span>
-                         <span className="text-[10px] font-bold text-zinc-400 border border-zinc-700 bg-zinc-950 px-2 py-0.5 rounded">R$ {getActualPrice(a).toFixed(2).replace(".", ",")}</span>
+                        <span className="text-[8px] md:text-[10px] font-bold text-white bg-zinc-800 border border-zinc-700 px-1.5 md:px-2 py-0.5 rounded">
+                          {a.service}
+                        </span>
+                        <span
+                          className={`text-[8px] md:text-[10px] font-bold uppercase px-1.5 md:px-2 py-0.5 rounded ${a.status === "confirmed" || a.status === "completed" ? "text-emerald-400 bg-emerald-400/10" : a.status === "canceled" ? "text-red-400 bg-red-400/10" : "text-orange-400 bg-orange-400/10"}`}
+                        >
+                          {a.status}
+                        </span>
+                        <span className="text-[8px] md:text-[10px] font-bold text-zinc-400 border border-zinc-700 bg-zinc-950 px-1.5 md:px-2 py-0.5 rounded">
+                          R$ {getActualPrice(a).toFixed(2).replace(".", ",")}
+                        </span>
                       </div>
                     </div>
                   </div>
@@ -532,41 +948,88 @@ export default function AdminPage() {
             </div>
           </div>
         )}
-        
       </section>
 
       {/* MODAL AGENDAMENTO VIP ADMIN */}
       {showModal && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 backdrop-blur-sm animate-in fade-in">
-          <div className="bg-zinc-900 border border-zinc-800 p-6 rounded-3xl w-full max-w-md flex flex-col gap-5 shadow-2xl">
+          <div className="bg-zinc-900 border border-zinc-800 p-5 md:p-6 rounded-2xl md:rounded-3xl w-full max-w-md flex flex-col gap-4 md:gap-5 shadow-2xl">
             <div>
-              <h2 className="text-xl font-bold text-white flex items-center gap-2"><ShieldCheck className="text-amber-400" size={24}/> Agendamento VIP</h2>
-              <p className="text-xs text-amber-400/80 font-bold mt-1 uppercase tracking-wider">Isento de cobrança no caixa</p>
+              <h2 className="text-lg md:text-xl font-bold text-white flex items-center gap-2">
+                <ShieldCheck className="text-amber-400" size={22} /> Agendamento
+                VIP
+              </h2>
+              <p className="text-[10px] md:text-xs text-amber-400/80 font-bold mt-1 uppercase tracking-wider">
+                Isento de cobrança no caixa
+              </p>
             </div>
 
-            <div className="flex flex-col gap-4">
-              <select className="bg-zinc-800 border border-zinc-700 p-3.5 rounded-xl outline-none text-sm font-bold text-white focus:border-amber-400" value={form.barberId} onChange={(e) => setForm({ ...form, barberId: e.target.value })}>
+            <div className="flex flex-col gap-3 md:gap-4">
+              <select
+                className="bg-zinc-800 border border-zinc-700 p-3 md:p-3.5 rounded-xl outline-none text-xs md:text-sm font-bold text-white focus:border-amber-400"
+                value={form.barberId}
+                onChange={(e) => setForm({ ...form, barberId: e.target.value })}
+              >
                 <option value="">Selecionar Barbeiro</option>
-                {barbers.map((b) => (<option key={b.id} value={b.id}>{b.display_name}</option>))}
+                {barbers.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.display_name}
+                  </option>
+                ))}
               </select>
 
-              <select className="bg-zinc-800 border border-zinc-700 p-3.5 rounded-xl outline-none text-sm text-white focus:border-amber-400" value={form.service} onChange={(e) => setForm({ ...form, service: e.target.value })}>
+              <select
+                className="bg-zinc-800 border border-zinc-700 p-3 md:p-3.5 rounded-xl outline-none text-xs md:text-sm text-white focus:border-amber-400"
+                value={form.service}
+                onChange={(e) => setForm({ ...form, service: e.target.value })}
+              >
                 <option value="">Selecionar Serviço</option>
-                {servicesList.filter(s => !s.name.toLowerCase().includes("plano")).map((s) => (<option key={s.id} value={s.name}>{s.name} (Tabela: R${s.price})</option>))}
+                {servicesList
+                  .filter((s) => !s.name.toLowerCase().includes("plano"))
+                  .map((s) => (
+                    <option key={s.id} value={s.name}>
+                      {s.name} (Tabela: R${s.price})
+                    </option>
+                  ))}
               </select>
 
-              <div className="grid grid-cols-2 gap-3">
-                <input type="date" className="bg-zinc-800 border border-zinc-700 p-3.5 rounded-xl outline-none text-sm text-white [color-scheme:dark] focus:border-amber-400" value={form.date} min={todayStr} onChange={(e) => setForm({ ...form, date: e.target.value })} />
-                <select className="bg-zinc-800 border border-zinc-700 p-3.5 rounded-xl outline-none text-sm text-white focus:border-amber-400" value={form.time} onChange={(e) => setForm({ ...form, time: e.target.value })}>
+              <div className="grid grid-cols-2 gap-2 md:gap-3">
+                <input
+                  type="date"
+                  className="bg-zinc-800 border border-zinc-700 p-3 md:p-3.5 rounded-xl outline-none text-xs md:text-sm text-white [color-scheme:dark] focus:border-amber-400"
+                  value={form.date}
+                  min={todayStr}
+                  onChange={(e) => setForm({ ...form, date: e.target.value })}
+                />
+                <select
+                  className="bg-zinc-800 border border-zinc-700 p-3 md:p-3.5 rounded-xl outline-none text-xs md:text-sm text-white focus:border-amber-400"
+                  value={form.time}
+                  onChange={(e) => setForm({ ...form, time: e.target.value })}
+                >
                   <option value="">Horário</option>
-                  {HOURS.map((h: string) => (<option key={h} value={h}>{h}</option>))}
+                  {HOURS.map((h: string) => (
+                    <option key={h} value={h}>
+                      {h}
+                    </option>
+                  ))}
                 </select>
               </div>
             </div>
 
-            <div className="flex gap-3 mt-2 border-t border-zinc-800 pt-4">
-              <button onClick={() => setShowModal(false)} className="flex-1 py-3.5 text-zinc-400 font-bold text-sm hover:text-white transition-colors">Cancelar</button>
-              <button onClick={handleCreateAppointment} disabled={saving} className="flex-1 bg-amber-400 text-zinc-950 py-3.5 rounded-xl font-black uppercase text-xs tracking-wider hover:bg-amber-300 transition-colors disabled:opacity-50 shadow-lg shadow-amber-400/20">{saving ? "Injetando..." : "Confirmar Agenda"}</button>
+            <div className="flex gap-2 md:gap-3 mt-1 md:mt-2 border-t border-zinc-800 pt-3 md:pt-4">
+              <button
+                onClick={() => setShowModal(false)}
+                className="flex-1 py-3 md:py-3.5 text-zinc-400 font-bold text-xs md:text-sm hover:text-white transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleCreateAppointment}
+                disabled={saving}
+                className="flex-1 bg-amber-400 text-zinc-950 py-3 md:py-3.5 rounded-xl font-black uppercase text-[10px] md:text-xs tracking-wider hover:bg-amber-300 transition-colors disabled:opacity-50 shadow-lg shadow-amber-400/20"
+              >
+                {saving ? "Injetando..." : "Confirmar Agenda"}
+              </button>
             </div>
           </div>
         </div>

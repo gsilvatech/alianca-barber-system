@@ -29,6 +29,14 @@ import {
   CheckCircle2,
 } from "lucide-react";
 
+// --- HELPER DE DATA LOCAL (CORRIGE O FUSO HORÁRIO DO BRASIL) ---
+const getLocalDateStr = (d = new Date()) => {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
 const timeToMinutes = (timeStr: string): number => {
   const [hours, minutes] = timeStr.split(":").map(Number);
   return hours * 60 + minutes;
@@ -37,12 +45,16 @@ const timeToMinutes = (timeStr: string): number => {
 const isPast = (dateStr: string, timeStr: string) => {
   if (!dateStr || !timeStr) return false;
   const now = new Date();
-  const [year, month, day] = dateStr.split("-").map(Number);
+  const cleanDate = dateStr.split("T")[0]; // Garante que pegamos só o YYYY-MM-DD
+  const [year, month, day] = cleanDate.split("-").map(Number);
   const [hours, minutes] = timeStr.split(":").map(Number);
-  const apptDate = new Date(year, month - 1, day, hours, minutes);
+
+  // Adiciona 30 minutos de "duração do corte" para marcar como concluído
+  const apptDate = new Date(year, month - 1, day, hours, minutes + 30);
   return now > apptDate;
 };
 
+// Componente para renderizar a porcentagem de crescimento Verde/Vermelha
 function renderGrowth(current: number, past: number) {
   if (past === 0 && current === 0) return null;
   const pct = past === 0 ? 100 : ((current - past) / past) * 100;
@@ -94,11 +106,15 @@ export default function BarbeiroPage() {
   const router = useRouter();
   const supabase = createClient();
 
-  const [profile, setProfile] = useState<{ name: string; id: string } | null>(null);
+  const [profile, setProfile] = useState<{ name: string; id: string } | null>(
+    null,
+  );
   const [barberId, setBarberId] = useState<string | null>(null);
   const [today, setToday] = useState<Appointment[]>([]);
   const [week, setWeek] = useState<Appointment[]>([]);
-  const [blockedDates, setBlockedDates] = useState<{ id: string; date: string; reason: string }[]>([]);
+  const [blockedDates, setBlockedDates] = useState<
+    { id: string; date: string; reason: string }[]
+  >([]);
   const [newBlockDate, setNewBlockDate] = useState("");
   const [newBlockReason, setNewBlockReason] = useState("");
   const [loadingBlock, setLoadingBlock] = useState(false);
@@ -106,15 +122,20 @@ export default function BarbeiroPage() {
 
   const [isFullDay, setIsFullDay] = useState(true);
   const [selectedTimes, setSelectedTimes] = useState<string[]>([]);
-  const [activeTab, setActiveTab] = useState<"home" | "agenda" | "financeiro" | "gestao" | "novo">("home");
+  const [activeTab, setActiveTab] = useState<
+    "home" | "agenda" | "financeiro" | "gestao" | "novo"
+  >("home");
 
-  const todayStr = new Date().toISOString().split("T")[0];
+  // UTILIZANDO O DATA LOCAL CORRETO
+  const todayStr = getLocalDateStr();
+
   const weekEnd = new Date();
   weekEnd.setDate(weekEnd.getDate() + 7);
-  const weekEndStr = weekEnd.toISOString().split("T")[0];
+  const weekEndStr = getLocalDateStr(weekEnd);
+
   const monthEnd = new Date();
   monthEnd.setDate(monthEnd.getDate() + 30);
-  const monthEndStr = monthEnd.toISOString().split("T")[0];
+  const monthEndStr = getLocalDateStr(monthEnd);
 
   const [manualClientId, setManualClientId] = useState("AVULSO");
   const [manualCustomer, setManualCustomer] = useState("");
@@ -126,27 +147,36 @@ export default function BarbeiroPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [manualTakenSlots, setManualTakenSlots] = useState<string[]>([]);
 
-  const [editingAppointment, setEditingAppointment] = useState<Appointment | null>(null);
+  const [editingAppointment, setEditingAppointment] =
+    useState<Appointment | null>(null);
   const [editDate, setEditDate] = useState("");
   const [editTime, setEditTime] = useState("");
   const [isUpdating, setIsUpdating] = useState(false);
   const [editTakenSlots, setEditTakenSlots] = useState<string[]>([]);
 
-  const [gestaoView, setGestaoView] = useState<"menu" | "estoque" | "crm" | "servicos">("menu");
+  const [gestaoView, setGestaoView] = useState<
+    "menu" | "estoque" | "crm" | "servicos"
+  >("menu");
   const [products, setProducts] = useState<Product[]>([]);
-  const [estoqueTab, setEstoqueTab] = useState<"barbearia" | "geladeira">("barbearia");
+  const [estoqueTab, setEstoqueTab] = useState<"barbearia" | "geladeira">(
+    "barbearia",
+  );
   const [isProductModalOpen, setIsProductModalOpen] = useState(false);
   const [productName, setProductName] = useState("");
   const [productPrice, setProductPrice] = useState("");
   const [productQuantity, setProductQuantity] = useState("");
-  const [productCategory, setProductCategory] = useState<"barbearia" | "geladeira">("barbearia");
+  const [productCategory, setProductCategory] = useState<
+    "barbearia" | "geladeira"
+  >("barbearia");
   const [isSavingProduct, setIsSavingProduct] = useState(false);
   const [isEditProductModalOpen, setIsEditProductModalOpen] = useState(false);
   const [editProductId, setEditProductId] = useState("");
   const [editProductName, setEditProductName] = useState("");
   const [editProductPrice, setEditProductPrice] = useState("");
   const [editProductQuantity, setEditProductQuantity] = useState("");
-  const [editProductCategory, setEditProductCategory] = useState<"barbearia" | "geladeira">("barbearia");
+  const [editProductCategory, setEditProductCategory] = useState<
+    "barbearia" | "geladeira"
+  >("barbearia");
   const [isUpdatingProduct, setIsUpdatingProduct] = useState(false);
   const [isSellModalOpen, setIsSellModalOpen] = useState(false);
   const [sellProductId, setSellProductId] = useState("");
@@ -191,7 +221,9 @@ export default function BarbeiroPage() {
   const [goalTarget, setGoalTarget] = useState("");
   const [isSavingGoal, setIsSavingGoal] = useState(false);
 
-  const [crmTab, setCrmTab] = useState<"assinaturas" | "clientes">("assinaturas");
+  const [crmTab, setCrmTab] = useState<"assinaturas" | "clientes">(
+    "assinaturas",
+  );
   const [clientPlans, setClientPlans] = useState<any[]>([]);
   const [crmClients, setCrmClients] = useState<any[]>([]);
   const [isNewClientModalOpen, setIsNewClientModalOpen] = useState(false);
@@ -258,10 +290,18 @@ export default function BarbeiroPage() {
     const now = new Date();
     const currentYear = now.getFullYear();
     const currentMonthIdx = now.getMonth();
-    const firstDayThisMonth = new Date(currentYear, currentMonthIdx, 1).toISOString().split("T")[0];
-    const firstDayLastMonth = new Date(currentYear, currentMonthIdx - 1, 1).toISOString().split("T")[0];
-    const lastDayLastMonth = new Date(currentYear, currentMonthIdx, 0).toISOString().split("T")[0];
-    const today = now.toISOString().split("T")[0];
+
+    // UTLIZANDO O LOCAL DATA NAS DATAS DO FINANCEIRO
+    const firstDayThisMonth = getLocalDateStr(
+      new Date(currentYear, currentMonthIdx, 1),
+    );
+    const firstDayLastMonth = getLocalDateStr(
+      new Date(currentYear, currentMonthIdx - 1, 1),
+    );
+    const lastDayLastMonth = getLocalDateStr(
+      new Date(currentYear, currentMonthIdx, 0),
+    );
+    const today = getLocalDateStr(now);
 
     const { data: allPlans } = await supabase
       .from("client_plans")
@@ -273,9 +313,10 @@ export default function BarbeiroPage() {
     const { data: allProductSales } = await supabase
       .from("product_sales")
       .select("total_price, created_at, barber_id");
-    
-    // NOVO: Buscamos a tabela de serviços para servir de "Fallback de Segurança"
-    const { data: allServices } = await supabase.from("services").select("name, price");
+
+    const { data: allServices } = await supabase
+      .from("services")
+      .select("name, price");
 
     let mesAtual = 0,
       mesPassado = 0,
@@ -334,19 +375,20 @@ export default function BarbeiroPage() {
       allAppts.forEach((a) => {
         const isBlock = a.service.startsWith("BLOQUEIO");
         const isPlano = a.service.startsWith("PLANO:");
-        const isAdmin = a.service.startsWith("ADMIN:"); // Garantindo isenção do seu Dev Pass
+        const isAdmin = a.service.startsWith("ADMIN:");
         const timeHasPassed = isPast(a.date, a.time);
-        const shouldCountRevenue = a.status === "completed" || (a.status === "confirmed" && timeHasPassed);
+        const shouldCountRevenue =
+          a.status === "completed" ||
+          (a.status === "confirmed" && timeHasPassed);
 
-        // --- A MÁGICA DO FALLBACK AQUI ---
         let val = 0;
         if (!isBlock && !isPlano && !isAdmin) {
           if (a.price_applied !== null && a.price_applied > 0) {
             val = Number(a.price_applied);
           } else {
-            // Se veio zerado do App antigo, resgata o valor original na força
             let svcName = a.service;
-            if (svcName.startsWith("MANUAL:")) svcName = svcName.split(" - ")[1] || svcName;
+            if (svcName.startsWith("MANUAL:"))
+              svcName = svcName.split(" - ")[1] || svcName;
             const svc = (allServices || []).find((s) => s.name === svcName);
             val = svc ? svc.price : 0;
           }
@@ -610,13 +652,11 @@ export default function BarbeiroPage() {
     if (!newBlockDate || !barberId) return;
     setLoadingBlock(true);
     if (isFullDay) {
-      await supabase
-        .from("blocked_dates")
-        .insert({
-          barber_id: barberId,
-          date: newBlockDate,
-          reason: newBlockReason || "Folga",
-        });
+      await supabase.from("blocked_dates").insert({
+        barber_id: barberId,
+        date: newBlockDate,
+        reason: newBlockReason || "Folga",
+      });
     } else {
       const motivoFinal = newBlockReason
         ? `BLOQUEIO: ${newBlockReason}`
@@ -690,14 +730,12 @@ export default function BarbeiroPage() {
     if (!newClientName || !newClientPhone)
       return alert("Preencha Nome e Telefone!");
     setIsSavingGhost(true);
-    const { error } = await supabase
-      .from("profiles")
-      .insert({
-        name: newClientName,
-        phone: newClientPhone,
-        role: "client",
-        is_ghost: true,
-      });
+    const { error } = await supabase.from("profiles").insert({
+      name: newClientName,
+      phone: newClientPhone,
+      role: "client",
+      is_ghost: true,
+    });
     if (!error) {
       setNewClientName("");
       setNewClientPhone("");
@@ -806,13 +844,11 @@ export default function BarbeiroPage() {
   async function handleAddGoal() {
     if (!goalTitle || !goalTarget) return;
     setIsSavingGoal(true);
-    await supabase
-      .from("barber_goals")
-      .insert({
-        barber_id: barberId,
-        title: goalTitle,
-        target_value: parseFloat(goalTarget.replace(",", ".")),
-      });
+    await supabase.from("barber_goals").insert({
+      barber_id: barberId,
+      title: goalTitle,
+      target_value: parseFloat(goalTarget.replace(",", ".")),
+    });
     setGoalTitle("");
     setGoalTarget("");
     setIsGoalModalOpen(false);
@@ -843,15 +879,13 @@ export default function BarbeiroPage() {
   async function handleAddProduct() {
     if (!productName || !productPrice || !productQuantity) return;
     setIsSavingProduct(true);
-    await supabase
-      .from("products")
-      .insert({
-        barber_id: barberId,
-        name: productName,
-        price: parseFloat(productPrice.replace(",", ".")),
-        quantity: parseInt(productQuantity),
-        category: productCategory,
-      });
+    await supabase.from("products").insert({
+      barber_id: barberId,
+      name: productName,
+      price: parseFloat(productPrice.replace(",", ".")),
+      quantity: parseInt(productQuantity),
+      category: productCategory,
+    });
     setProductName("");
     setProductPrice("");
     setProductQuantity("");
@@ -896,15 +930,13 @@ export default function BarbeiroPage() {
       .from("products")
       .update({ quantity: product.quantity - sellQuantity })
       .eq("id", sellProductId);
-    await supabase
-      .from("product_sales")
-      .insert({
-        barber_id: barberId,
-        product_name: product.name,
-        quantity: sellQuantity,
-        unit_price: product.price,
-        total_price: totalPrice,
-      });
+    await supabase.from("product_sales").insert({
+      barber_id: barberId,
+      product_name: product.name,
+      quantity: sellQuantity,
+      unit_price: product.price,
+      total_price: totalPrice,
+    });
     setIsSellModalOpen(false);
     setSellProductId("");
     setSellQuantity(1);
@@ -915,14 +947,12 @@ export default function BarbeiroPage() {
   async function handleAddService() {
     if (!svcName || !svcPrice || !svcDuration) return;
     setIsSavingSvc(true);
-    await supabase
-      .from("services")
-      .insert({
-        barber_id: barberId,
-        name: svcName,
-        price: parseFloat(svcPrice.replace(",", ".")),
-        duration: parseInt(svcDuration),
-      });
+    await supabase.from("services").insert({
+      barber_id: barberId,
+      name: svcName,
+      price: parseFloat(svcPrice.replace(",", ".")),
+      duration: parseInt(svcDuration),
+    });
     setSvcName("");
     setSvcPrice("");
     setSvcDuration("");
@@ -991,18 +1021,16 @@ export default function BarbeiroPage() {
       planId = activeClientPlan.id;
     }
 
-    const { error } = await supabase
-      .from("appointments")
-      .insert({
-        barber_id: barberId,
-        client_id: manualClientId !== "AVULSO" ? manualClientId : profile?.id,
-        client_plan_id: planId,
-        date: manualDate,
-        time: manualTime,
-        service: finalServiceTag,
-        status: "confirmed",
-        price_applied: appliedPrice,
-      });
+    const { error } = await supabase.from("appointments").insert({
+      barber_id: barberId,
+      client_id: manualClientId !== "AVULSO" ? manualClientId : profile?.id,
+      client_plan_id: planId,
+      date: manualDate,
+      time: manualTime,
+      service: finalServiceTag,
+      status: "confirmed",
+      price_applied: appliedPrice,
+    });
     if (!error) {
       if (usePlan && activeClientPlan) {
         await supabase
@@ -1203,12 +1231,21 @@ export default function BarbeiroPage() {
                 </button>
               </div>
               <div className="flex flex-col gap-3">
-                {week.length === 0 ? (
-                  <div className="bg-zinc-900 border border-zinc-800 rounded-2xl px-4 py-10 text-center text-zinc-600 text-sm italic">
-                    Nenhum compromisso agendado para o período.
-                  </div>
-                ) : (
-                  week.map((a) => {
+                {(() => {
+                  // A MÁGICA AQUI: Filtra a lista da Agenda para esconder quem já passou da hora
+                  const upcomingAppointments = week.filter(
+                    (a) => !isPast(a.date, a.time),
+                  );
+
+                  if (upcomingAppointments.length === 0) {
+                    return (
+                      <div className="bg-zinc-900 border border-zinc-800 rounded-2xl px-4 py-10 text-center text-zinc-600 text-sm italic">
+                        Nenhum compromisso futuro agendado para o período.
+                      </div>
+                    );
+                  }
+
+                  return upcomingAppointments.map((a) => {
                     const isBlock = a.service.startsWith("BLOQUEIO");
                     return (
                       <div
@@ -1273,8 +1310,8 @@ export default function BarbeiroPage() {
                         </div>
                       </div>
                     );
-                  })
-                )}
+                  });
+                })()}
               </div>
             </section>
 
