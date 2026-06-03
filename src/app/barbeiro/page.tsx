@@ -43,7 +43,6 @@ const isPast = (dateStr: string, timeStr: string) => {
   return now > apptDate;
 };
 
-// Componente para renderizar a porcentagem de crescimento Verde/Vermelha
 function renderGrowth(current: number, past: number) {
   if (past === 0 && current === 0) return null;
   const pct = past === 0 ? 100 : ((current - past) / past) * 100;
@@ -67,6 +66,7 @@ type Appointment = {
   date: string;
   time: string;
   status: string;
+  price_applied?: number;
   profiles: { name: string; phone: string };
 };
 type Product = {
@@ -94,15 +94,11 @@ export default function BarbeiroPage() {
   const router = useRouter();
   const supabase = createClient();
 
-  const [profile, setProfile] = useState<{ name: string; id: string } | null>(
-    null,
-  );
+  const [profile, setProfile] = useState<{ name: string; id: string } | null>(null);
   const [barberId, setBarberId] = useState<string | null>(null);
   const [today, setToday] = useState<Appointment[]>([]);
   const [week, setWeek] = useState<Appointment[]>([]);
-  const [blockedDates, setBlockedDates] = useState<
-    { id: string; date: string; reason: string }[]
-  >([]);
+  const [blockedDates, setBlockedDates] = useState<{ id: string; date: string; reason: string }[]>([]);
   const [newBlockDate, setNewBlockDate] = useState("");
   const [newBlockReason, setNewBlockReason] = useState("");
   const [loadingBlock, setLoadingBlock] = useState(false);
@@ -110,9 +106,7 @@ export default function BarbeiroPage() {
 
   const [isFullDay, setIsFullDay] = useState(true);
   const [selectedTimes, setSelectedTimes] = useState<string[]>([]);
-  const [activeTab, setActiveTab] = useState<
-    "home" | "agenda" | "financeiro" | "gestao" | "novo"
-  >("home");
+  const [activeTab, setActiveTab] = useState<"home" | "agenda" | "financeiro" | "gestao" | "novo">("home");
 
   const todayStr = new Date().toISOString().split("T")[0];
   const weekEnd = new Date();
@@ -132,36 +126,27 @@ export default function BarbeiroPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [manualTakenSlots, setManualTakenSlots] = useState<string[]>([]);
 
-  const [editingAppointment, setEditingAppointment] =
-    useState<Appointment | null>(null);
+  const [editingAppointment, setEditingAppointment] = useState<Appointment | null>(null);
   const [editDate, setEditDate] = useState("");
   const [editTime, setEditTime] = useState("");
   const [isUpdating, setIsUpdating] = useState(false);
   const [editTakenSlots, setEditTakenSlots] = useState<string[]>([]);
 
-  const [gestaoView, setGestaoView] = useState<
-    "menu" | "estoque" | "crm" | "servicos"
-  >("menu");
+  const [gestaoView, setGestaoView] = useState<"menu" | "estoque" | "crm" | "servicos">("menu");
   const [products, setProducts] = useState<Product[]>([]);
-  const [estoqueTab, setEstoqueTab] = useState<"barbearia" | "geladeira">(
-    "barbearia",
-  );
+  const [estoqueTab, setEstoqueTab] = useState<"barbearia" | "geladeira">("barbearia");
   const [isProductModalOpen, setIsProductModalOpen] = useState(false);
   const [productName, setProductName] = useState("");
   const [productPrice, setProductPrice] = useState("");
   const [productQuantity, setProductQuantity] = useState("");
-  const [productCategory, setProductCategory] = useState<
-    "barbearia" | "geladeira"
-  >("barbearia");
+  const [productCategory, setProductCategory] = useState<"barbearia" | "geladeira">("barbearia");
   const [isSavingProduct, setIsSavingProduct] = useState(false);
   const [isEditProductModalOpen, setIsEditProductModalOpen] = useState(false);
   const [editProductId, setEditProductId] = useState("");
   const [editProductName, setEditProductName] = useState("");
   const [editProductPrice, setEditProductPrice] = useState("");
   const [editProductQuantity, setEditProductQuantity] = useState("");
-  const [editProductCategory, setEditProductCategory] = useState<
-    "barbearia" | "geladeira"
-  >("barbearia");
+  const [editProductCategory, setEditProductCategory] = useState<"barbearia" | "geladeira">("barbearia");
   const [isUpdatingProduct, setIsUpdatingProduct] = useState(false);
   const [isSellModalOpen, setIsSellModalOpen] = useState(false);
   const [sellProductId, setSellProductId] = useState("");
@@ -178,7 +163,6 @@ export default function BarbeiroPage() {
 
   const [goals, setGoals] = useState<BarberGoal[]>([]);
 
-  // --- ATUALIZADO: Gráficos agora suportam quantidade de clientes ---
   const [finances, setFinances] = useState({
     mesAtual: 0,
     mesPassado: 0,
@@ -207,9 +191,7 @@ export default function BarbeiroPage() {
   const [goalTarget, setGoalTarget] = useState("");
   const [isSavingGoal, setIsSavingGoal] = useState(false);
 
-  const [crmTab, setCrmTab] = useState<"assinaturas" | "clientes">(
-    "assinaturas",
-  );
+  const [crmTab, setCrmTab] = useState<"assinaturas" | "clientes">("assinaturas");
   const [clientPlans, setClientPlans] = useState<any[]>([]);
   const [crmClients, setCrmClients] = useState<any[]>([]);
   const [isNewClientModalOpen, setIsNewClientModalOpen] = useState(false);
@@ -276,15 +258,9 @@ export default function BarbeiroPage() {
     const now = new Date();
     const currentYear = now.getFullYear();
     const currentMonthIdx = now.getMonth();
-    const firstDayThisMonth = new Date(currentYear, currentMonthIdx, 1)
-      .toISOString()
-      .split("T")[0];
-    const firstDayLastMonth = new Date(currentYear, currentMonthIdx - 1, 1)
-      .toISOString()
-      .split("T")[0];
-    const lastDayLastMonth = new Date(currentYear, currentMonthIdx, 0)
-      .toISOString()
-      .split("T")[0];
+    const firstDayThisMonth = new Date(currentYear, currentMonthIdx, 1).toISOString().split("T")[0];
+    const firstDayLastMonth = new Date(currentYear, currentMonthIdx - 1, 1).toISOString().split("T")[0];
+    const lastDayLastMonth = new Date(currentYear, currentMonthIdx, 0).toISOString().split("T")[0];
     const today = now.toISOString().split("T")[0];
 
     const { data: allPlans } = await supabase
@@ -297,6 +273,9 @@ export default function BarbeiroPage() {
     const { data: allProductSales } = await supabase
       .from("product_sales")
       .select("total_price, created_at, barber_id");
+    
+    // NOVO: Buscamos a tabela de serviços para servir de "Fallback de Segurança"
+    const { data: allServices } = await supabase.from("services").select("name, price");
 
     let mesAtual = 0,
       mesPassado = 0,
@@ -353,13 +332,25 @@ export default function BarbeiroPage() {
 
     if (allAppts) {
       allAppts.forEach((a) => {
-        const val = Number(a.price_applied || 0);
-        const aDate = a.date;
         const isBlock = a.service.startsWith("BLOQUEIO");
+        const isPlano = a.service.startsWith("PLANO:");
+        const isAdmin = a.service.startsWith("ADMIN:"); // Garantindo isenção do seu Dev Pass
         const timeHasPassed = isPast(a.date, a.time);
-        const shouldCountRevenue =
-          a.status === "completed" ||
-          (a.status === "confirmed" && timeHasPassed);
+        const shouldCountRevenue = a.status === "completed" || (a.status === "confirmed" && timeHasPassed);
+
+        // --- A MÁGICA DO FALLBACK AQUI ---
+        let val = 0;
+        if (!isBlock && !isPlano && !isAdmin) {
+          if (a.price_applied !== null && a.price_applied > 0) {
+            val = Number(a.price_applied);
+          } else {
+            // Se veio zerado do App antigo, resgata o valor original na força
+            let svcName = a.service;
+            if (svcName.startsWith("MANUAL:")) svcName = svcName.split(" - ")[1] || svcName;
+            const svc = (allServices || []).find((s) => s.name === svcName);
+            val = svc ? svc.price : 0;
+          }
+        }
 
         const [ay, am, ad] = a.date.split("-");
         const aYear = parseInt(ay);
@@ -378,21 +369,21 @@ export default function BarbeiroPage() {
 
           if (a.barber_id === barberId) {
             total += val;
-            if (aDate >= firstDayThisMonth && aDate <= today) {
+            if (a.date >= firstDayThisMonth && a.date <= today) {
               mesAtual += val;
               if (!isBlock) clientesMesAtual++;
             }
-            if (aDate >= firstDayLastMonth && aDate <= lastDayLastMonth) {
+            if (a.date >= firstDayLastMonth && a.date <= lastDayLastMonth) {
               mesPassado += val;
               if (!isBlock) clientesMesPassado++;
             }
           }
 
-          if (aDate >= firstDayThisMonth && aDate <= today) {
+          if (a.date >= firstDayThisMonth && a.date <= today) {
             globalMesAtual += val;
             if (!isBlock) globalClientesMesAtual++;
           }
-          if (aDate >= firstDayLastMonth && aDate <= lastDayLastMonth) {
+          if (a.date >= firstDayLastMonth && a.date <= lastDayLastMonth) {
             globalMesPassado += val;
             if (!isBlock) globalClientesMesPassado++;
           }
