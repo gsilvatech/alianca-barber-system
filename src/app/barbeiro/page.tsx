@@ -126,6 +126,14 @@ export default function BarbeiroPage() {
     "home" | "agenda" | "financeiro" | "gestao" | "novo"
   >("home");
 
+  // SELETORES DO DASHBOARD BI
+  const [chartView, setChartView] = useState<"diario" | "mensal" | "anual">(
+    "diario",
+  );
+  const [chartViewGlobal, setChartViewGlobal] = useState<
+    "diario" | "mensal" | "anual"
+  >("diario");
+
   // UTILIZANDO O DATA LOCAL CORRETO
   const todayStr = getLocalDateStr();
 
@@ -144,6 +152,11 @@ export default function BarbeiroPage() {
   const [manualDate, setManualDate] = useState(todayStr);
   const [manualTime, setManualTime] = useState("");
   const [usePlan, setUsePlan] = useState(false);
+
+  // ESTADOS DO DESCONTO VIP
+  const [isVipDiscount, setIsVipDiscount] = useState(false);
+  const [vipPrice, setVipPrice] = useState("");
+
   const [isSaving, setIsSaving] = useState(false);
   const [manualTakenSlots, setManualTakenSlots] = useState<string[]>([]);
 
@@ -194,26 +207,32 @@ export default function BarbeiroPage() {
   const [goals, setGoals] = useState<BarberGoal[]>([]);
 
   const [finances, setFinances] = useState({
+    hoje: 0,
+    ontem: 0,
     mesAtual: 0,
     mesPassado: 0,
     total: 0,
+    clientesHoje: 0,
     clientesMesAtual: 0,
     clientesMesPassado: 0,
+    globalHoje: 0,
+    globalOntem: 0,
     globalMesAtual: 0,
     globalMesPassado: 0,
+    globalClientesHoje: 0,
     globalClientesMesAtual: 0,
     globalClientesMesPassado: 0,
     globalServicosMesAtual: 0,
     globalProdutosMesAtual: 0,
-    chartData: [] as {
-      name: string;
-      ind: number;
-      gen: number;
-      indClients: number;
-      genClients: number;
-    }[],
-    maxInd: 1,
-    maxGen: 1,
+    chartDiario: [] as any[],
+    chartMensal: [] as any[],
+    chartAnual: [] as any[],
+    maxGenDiario: 1,
+    maxGenMensal: 1,
+    maxGenAnual: 1,
+    maxIndDiario: 1,
+    maxIndMensal: 1,
+    maxIndAnual: 1,
   });
 
   const [isGoalModalOpen, setIsGoalModalOpen] = useState(false);
@@ -291,7 +310,6 @@ export default function BarbeiroPage() {
     const currentYear = now.getFullYear();
     const currentMonthIdx = now.getMonth();
 
-    // UTLIZANDO O LOCAL DATA NAS DATAS DO FINANCEIRO
     const firstDayThisMonth = getLocalDateStr(
       new Date(currentYear, currentMonthIdx, 1),
     );
@@ -301,7 +319,50 @@ export default function BarbeiroPage() {
     const lastDayLastMonth = getLocalDateStr(
       new Date(currentYear, currentMonthIdx, 0),
     );
+
     const today = getLocalDateStr(now);
+    const yesterdayDate = new Date(now);
+    yesterdayDate.setDate(yesterdayDate.getDate() - 1);
+    const yesterdayStr = getLocalDateStr(yesterdayDate);
+
+    // ESTRUTURAS DO BI (Nível Trinks)
+    const last7DaysDates = Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(now);
+      d.setDate(d.getDate() - (6 - i));
+      return getLocalDateStr(d);
+    });
+    const last5Years = Array.from({ length: 5 }, (_, i) => currentYear - 4 + i);
+
+    let chartDiario = last7DaysDates.map((d) => ({
+      name: d.split("-").reverse().slice(0, 2).join("/"),
+      date: d,
+      ind: 0,
+      gen: 0,
+      indClients: 0,
+      genClients: 0,
+    }));
+    let chartMensal = [
+      "Jan",
+      "Fev",
+      "Mar",
+      "Abr",
+      "Mai",
+      "Jun",
+      "Jul",
+      "Ago",
+      "Set",
+      "Out",
+      "Nov",
+      "Dez",
+    ].map((m) => ({ name: m, ind: 0, gen: 0, indClients: 0, genClients: 0 }));
+    let chartAnual = last5Years.map((y) => ({
+      name: String(y),
+      year: y,
+      ind: 0,
+      gen: 0,
+      indClients: 0,
+      genClients: 0,
+    }));
 
     const { data: allPlans } = await supabase
       .from("client_plans")
@@ -313,61 +374,131 @@ export default function BarbeiroPage() {
     const { data: allProductSales } = await supabase
       .from("product_sales")
       .select("total_price, created_at, barber_id");
-
     const { data: allServices } = await supabase
       .from("services")
       .select("name, price");
 
-    let mesAtual = 0,
+    let hoje = 0,
+      ontem = 0,
+      mesAtual = 0,
       mesPassado = 0,
       total = 0,
+      clientesHoje = 0,
       clientesMesAtual = 0,
-      clientesMesPassado = 0,
+      clientesMesPassado = 0;
+    let globalHoje = 0,
+      globalOntem = 0,
       globalMesAtual = 0,
       globalMesPassado = 0,
+      globalClientesHoje = 0,
       globalClientesMesAtual = 0,
-      globalClientesMesPassado = 0,
-      globalServicosMesAtual = 0,
+      globalClientesMesPassado = 0;
+    let globalServicosMesAtual = 0,
       globalProdutosMesAtual = 0;
 
-    let chartData = [
-      { name: "Jan", ind: 0, gen: 0, indClients: 0, genClients: 0 },
-      { name: "Fev", ind: 0, gen: 0, indClients: 0, genClients: 0 },
-      { name: "Mar", ind: 0, gen: 0, indClients: 0, genClients: 0 },
-      { name: "Abr", ind: 0, gen: 0, indClients: 0, genClients: 0 },
-      { name: "Mai", ind: 0, gen: 0, indClients: 0, genClients: 0 },
-      { name: "Jun", ind: 0, gen: 0, indClients: 0, genClients: 0 },
-      { name: "Jul", ind: 0, gen: 0, indClients: 0, genClients: 0 },
-      { name: "Ago", ind: 0, gen: 0, indClients: 0, genClients: 0 },
-      { name: "Set", ind: 0, gen: 0, indClients: 0, genClients: 0 },
-      { name: "Out", ind: 0, gen: 0, indClients: 0, genClients: 0 },
-      { name: "Nov", ind: 0, gen: 0, indClients: 0, genClients: 0 },
-      { name: "Dez", ind: 0, gen: 0, indClients: 0, genClients: 0 },
-    ];
+    const processItem = (
+      val: number,
+      dateStr: string,
+      isBlock: boolean,
+      isProduct: boolean,
+      itemBarberId: string,
+    ) => {
+      const [ay, am, ad] = dateStr.split("-");
+      const aYear = parseInt(ay);
+      const aMonthIdx = parseInt(am) - 1;
+
+      // 1. DIÁRIO (Últimos 7 dias)
+      const dayMatch = chartDiario.find((d) => d.date === dateStr);
+      if (dayMatch) {
+        dayMatch.gen += val;
+        if (!isBlock && !isProduct) dayMatch.genClients += 1;
+        if (itemBarberId === barberId) {
+          dayMatch.ind += val;
+          if (!isBlock && !isProduct) dayMatch.indClients += 1;
+        }
+      }
+
+      // 2. MENSAL (Ano Atual)
+      if (aYear === currentYear) {
+        chartMensal[aMonthIdx].gen += val;
+        if (!isBlock && !isProduct) chartMensal[aMonthIdx].genClients += 1;
+        if (itemBarberId === barberId) {
+          chartMensal[aMonthIdx].ind += val;
+          if (!isBlock && !isProduct) chartMensal[aMonthIdx].indClients += 1;
+        }
+      }
+
+      // 3. ANUAL (Últimos 5 Anos)
+      const yearMatch = chartAnual.find((y) => y.year === aYear);
+      if (yearMatch) {
+        yearMatch.gen += val;
+        if (!isBlock && !isProduct) yearMatch.genClients += 1;
+        if (itemBarberId === barberId) {
+          yearMatch.ind += val;
+          if (!isBlock && !isProduct) yearMatch.indClients += 1;
+        }
+      }
+
+      // 4. TOTAIS INDIVIDUAIS (Cards)
+      if (itemBarberId === barberId) {
+        total += val;
+        if (dateStr === today) {
+          hoje += val;
+          if (!isBlock && !isProduct) clientesHoje++;
+        }
+        if (dateStr === yesterdayStr) {
+          ontem += val;
+        }
+        if (dateStr >= firstDayThisMonth && dateStr <= today) {
+          mesAtual += val;
+          if (!isBlock && !isProduct) clientesMesAtual++;
+        }
+        if (dateStr >= firstDayLastMonth && dateStr <= lastDayLastMonth) {
+          mesPassado += val;
+          if (!isBlock && !isProduct) clientesMesPassado++;
+        }
+      }
+
+      // 5. TOTAIS GLOBAIS (Cards)
+      if (dateStr === today) {
+        globalHoje += val;
+        if (!isBlock && !isProduct) globalClientesHoje++;
+      }
+      if (dateStr === yesterdayStr) {
+        globalOntem += val;
+      }
+      if (dateStr >= firstDayThisMonth && dateStr <= today) {
+        globalMesAtual += val;
+        if (!isBlock && !isProduct) globalClientesMesAtual++;
+        if (isProduct) globalProdutosMesAtual += val;
+      }
+      if (dateStr >= firstDayLastMonth && dateStr <= lastDayLastMonth) {
+        globalMesPassado += val;
+        if (!isBlock && !isProduct) globalClientesMesPassado++;
+      }
+    };
 
     if (allPlans) {
       allPlans.forEach((p) => {
-        const val = Number(p.price_paid);
-        const [py, pm, pd] = p.created_at.split("T")[0].split("-");
-        const pYear = parseInt(py);
-        const pMonthIdx = parseInt(pm) - 1;
-        const pDate = p.created_at.split("T")[0];
+        processItem(
+          Number(p.price_paid),
+          p.created_at.split("T")[0],
+          false,
+          false,
+          p.barber_id,
+        );
+      });
+    }
 
-        if (pYear === currentYear) {
-          chartData[pMonthIdx].gen += val;
-          if (p.barber_id === barberId) chartData[pMonthIdx].ind += val;
-        }
-
-        if (p.barber_id === barberId) {
-          total += val;
-          if (pDate >= firstDayThisMonth) mesAtual += val;
-          if (pDate >= firstDayLastMonth && pDate <= lastDayLastMonth)
-            mesPassado += val;
-        }
-
-        if (pDate >= firstDayThisMonth) globalMesAtual += val;
-        if (pDate >= firstDayLastMonth && pDate <= lastDayLastMonth)
-          globalMesPassado += val;
+    if (allProductSales) {
+      allProductSales.forEach((s) => {
+        processItem(
+          Number(s.total_price || 0),
+          s.created_at.split("T")[0],
+          false,
+          true,
+          s.barber_id,
+        );
       });
     }
 
@@ -393,87 +524,41 @@ export default function BarbeiroPage() {
             val = svc ? svc.price : 0;
           }
         }
-
-        const [ay, am, ad] = a.date.split("-");
-        const aYear = parseInt(ay);
-        const aMonthIdx = parseInt(am) - 1;
-
         if (shouldCountRevenue) {
-          if (aYear === currentYear) {
-            chartData[aMonthIdx].gen += val;
-            if (!isBlock) chartData[aMonthIdx].genClients += 1;
-
-            if (a.barber_id === barberId) {
-              chartData[aMonthIdx].ind += val;
-              if (!isBlock) chartData[aMonthIdx].indClients += 1;
-            }
-          }
-
-          if (a.barber_id === barberId) {
-            total += val;
-            if (a.date >= firstDayThisMonth && a.date <= today) {
-              mesAtual += val;
-              if (!isBlock) clientesMesAtual++;
-            }
-            if (a.date >= firstDayLastMonth && a.date <= lastDayLastMonth) {
-              mesPassado += val;
-              if (!isBlock) clientesMesPassado++;
-            }
-          }
-
-          if (a.date >= firstDayThisMonth && a.date <= today) {
-            globalMesAtual += val;
-            if (!isBlock) globalClientesMesAtual++;
-          }
-          if (a.date >= firstDayLastMonth && a.date <= lastDayLastMonth) {
-            globalMesPassado += val;
-            if (!isBlock) globalClientesMesPassado++;
-          }
-        }
-      });
-    }
-
-    if (allProductSales) {
-      allProductSales.forEach((s) => {
-        const val = Number(s.total_price || 0);
-        const sDate = s.created_at.split("T")[0];
-        const [sy, sm, sd] = sDate.split("-");
-        const sYear = parseInt(sy);
-        const sMonthIdx = parseInt(sm) - 1;
-
-        if (sYear === currentYear) {
-          chartData[sMonthIdx].gen += val;
-        }
-
-        if (sDate >= firstDayThisMonth && sDate <= today) {
-          globalMesAtual += val;
-          globalProdutosMesAtual += val;
-        }
-        if (sDate >= firstDayLastMonth && sDate <= lastDayLastMonth) {
-          globalMesPassado += val;
+          processItem(val, a.date, isBlock, false, a.barber_id);
         }
       });
     }
 
     globalServicosMesAtual = globalMesAtual - globalProdutosMesAtual;
-    const maxInd = Math.max(...chartData.map((d) => d.ind), 1);
-    const maxGen = Math.max(...chartData.map((d) => d.gen), 1);
 
     setFinances({
+      hoje,
+      ontem,
       mesAtual,
       mesPassado,
       total,
+      clientesHoje,
       clientesMesAtual,
       clientesMesPassado,
+      globalHoje,
+      globalOntem,
       globalMesAtual,
       globalMesPassado,
+      globalClientesHoje,
       globalClientesMesAtual,
       globalClientesMesPassado,
       globalServicosMesAtual,
       globalProdutosMesAtual,
-      chartData,
-      maxInd,
-      maxGen,
+      chartDiario,
+      chartMensal,
+      chartAnual,
+      maxGenDiario: Math.max(...chartDiario.map((d) => d.gen), 1),
+      maxGenMensal: Math.max(...chartMensal.map((d) => d.gen), 1),
+      maxGenAnual: Math.max(...chartAnual.map((d) => d.gen), 1),
+      maxIndDiario: Math.max(...chartDiario.map((d) => d.ind), 1),
+      maxIndMensal: Math.max(...chartMensal.map((d) => d.ind), 1),
+      maxIndAnual: Math.max(...chartAnual.map((d) => d.ind), 1),
     });
   }
 
@@ -652,11 +737,13 @@ export default function BarbeiroPage() {
     if (!newBlockDate || !barberId) return;
     setLoadingBlock(true);
     if (isFullDay) {
-      await supabase.from("blocked_dates").insert({
-        barber_id: barberId,
-        date: newBlockDate,
-        reason: newBlockReason || "Folga",
-      });
+      await supabase
+        .from("blocked_dates")
+        .insert({
+          barber_id: barberId,
+          date: newBlockDate,
+          reason: newBlockReason || "Folga",
+        });
     } else {
       const motivoFinal = newBlockReason
         ? `BLOQUEIO: ${newBlockReason}`
@@ -730,12 +817,14 @@ export default function BarbeiroPage() {
     if (!newClientName || !newClientPhone)
       return alert("Preencha Nome e Telefone!");
     setIsSavingGhost(true);
-    const { error } = await supabase.from("profiles").insert({
-      name: newClientName,
-      phone: newClientPhone,
-      role: "client",
-      is_ghost: true,
-    });
+    const { error } = await supabase
+      .from("profiles")
+      .insert({
+        name: newClientName,
+        phone: newClientPhone,
+        role: "client",
+        is_ghost: true,
+      });
     if (!error) {
       setNewClientName("");
       setNewClientPhone("");
@@ -844,11 +933,13 @@ export default function BarbeiroPage() {
   async function handleAddGoal() {
     if (!goalTitle || !goalTarget) return;
     setIsSavingGoal(true);
-    await supabase.from("barber_goals").insert({
-      barber_id: barberId,
-      title: goalTitle,
-      target_value: parseFloat(goalTarget.replace(",", ".")),
-    });
+    await supabase
+      .from("barber_goals")
+      .insert({
+        barber_id: barberId,
+        title: goalTitle,
+        target_value: parseFloat(goalTarget.replace(",", ".")),
+      });
     setGoalTitle("");
     setGoalTarget("");
     setIsGoalModalOpen(false);
@@ -879,13 +970,15 @@ export default function BarbeiroPage() {
   async function handleAddProduct() {
     if (!productName || !productPrice || !productQuantity) return;
     setIsSavingProduct(true);
-    await supabase.from("products").insert({
-      barber_id: barberId,
-      name: productName,
-      price: parseFloat(productPrice.replace(",", ".")),
-      quantity: parseInt(productQuantity),
-      category: productCategory,
-    });
+    await supabase
+      .from("products")
+      .insert({
+        barber_id: barberId,
+        name: productName,
+        price: parseFloat(productPrice.replace(",", ".")),
+        quantity: parseInt(productQuantity),
+        category: productCategory,
+      });
     setProductName("");
     setProductPrice("");
     setProductQuantity("");
@@ -930,13 +1023,15 @@ export default function BarbeiroPage() {
       .from("products")
       .update({ quantity: product.quantity - sellQuantity })
       .eq("id", sellProductId);
-    await supabase.from("product_sales").insert({
-      barber_id: barberId,
-      product_name: product.name,
-      quantity: sellQuantity,
-      unit_price: product.price,
-      total_price: totalPrice,
-    });
+    await supabase
+      .from("product_sales")
+      .insert({
+        barber_id: barberId,
+        product_name: product.name,
+        quantity: sellQuantity,
+        unit_price: product.price,
+        total_price: totalPrice,
+      });
     setIsSellModalOpen(false);
     setSellProductId("");
     setSellQuantity(1);
@@ -947,12 +1042,14 @@ export default function BarbeiroPage() {
   async function handleAddService() {
     if (!svcName || !svcPrice || !svcDuration) return;
     setIsSavingSvc(true);
-    await supabase.from("services").insert({
-      barber_id: barberId,
-      name: svcName,
-      price: parseFloat(svcPrice.replace(",", ".")),
-      duration: parseInt(svcDuration),
-    });
+    await supabase
+      .from("services")
+      .insert({
+        barber_id: barberId,
+        name: svcName,
+        price: parseFloat(svcPrice.replace(",", ".")),
+        duration: parseInt(svcDuration),
+      });
     setSvcName("");
     setSvcPrice("");
     setSvcDuration("");
@@ -1008,6 +1105,8 @@ export default function BarbeiroPage() {
   async function handleManualSchedule() {
     if (!manualCustomer || !manualService || !manualDate || !manualTime) return;
     setIsSaving(true);
+
+    // --- LÓGICA DE PRECIFICAÇÃO DINÂMICA (DESCONTO VIP) E PLANOS ---
     const selectedServiceData = servicesList.find(
       (sv) => sv.name === manualService,
     );
@@ -1019,6 +1118,8 @@ export default function BarbeiroPage() {
       appliedPrice = 0;
       finalServiceTag = `PLANO: ${activeClientPlan.plan_name}`;
       planId = activeClientPlan.id;
+    } else if (isVipDiscount) {
+      appliedPrice = parseFloat(vipPrice.replace(",", ".")) || 0;
     }
 
     const { error } = await supabase.from("appointments").insert({
@@ -1031,6 +1132,7 @@ export default function BarbeiroPage() {
       status: "confirmed",
       price_applied: appliedPrice,
     });
+
     if (!error) {
       if (usePlan && activeClientPlan) {
         await supabase
@@ -1045,6 +1147,8 @@ export default function BarbeiroPage() {
       setManualDate(todayStr);
       setManualTime("");
       setUsePlan(false);
+      setIsVipDiscount(false);
+      setVipPrice(""); // Reseta o desconto VIP
       setActiveTab("agenda");
       loadAppts();
       loadFinancesAndGoals();
@@ -1232,11 +1336,9 @@ export default function BarbeiroPage() {
               </div>
               <div className="flex flex-col gap-3">
                 {(() => {
-                  // A MÁGICA AQUI: Filtra a lista da Agenda para esconder quem já passou da hora
                   const upcomingAppointments = week.filter(
                     (a) => !isPast(a.date, a.time),
                   );
-
                   if (upcomingAppointments.length === 0) {
                     return (
                       <div className="bg-zinc-900 border border-zinc-800 rounded-2xl px-4 py-10 text-center text-zinc-600 text-sm italic">
@@ -1244,7 +1346,6 @@ export default function BarbeiroPage() {
                       </div>
                     );
                   }
-
                   return upcomingAppointments.map((a) => {
                     const isBlock = a.service.startsWith("BLOQUEIO");
                     return (
@@ -1425,7 +1526,7 @@ export default function BarbeiroPage() {
           </div>
         )}
 
-        {/* NOVO AGENDAMENTO */}
+        {/* --- NOVO AGENDAMENTO E DESCONTO VIP --- */}
         {activeTab === "novo" && (
           <div className="flex flex-col gap-6 animate-in fade-in duration-500">
             <header>
@@ -1472,6 +1573,7 @@ export default function BarbeiroPage() {
                   className="bg-zinc-800 border border-zinc-700 rounded-2xl px-4 py-3 text-white outline-none animate-in fade-in focus:border-amber-400 transition-colors"
                 />
               )}
+
               <div className="grid grid-cols-2 gap-4">
                 <select
                   value={manualService}
@@ -1495,30 +1597,63 @@ export default function BarbeiroPage() {
                       </option>
                     ))}
                 </select>
-                <input
-                  type="text"
-                  value={usePlan ? "R$ 0,00" : manualPrice}
-                  readOnly
-                  className={`bg-zinc-800 border border-zinc-700 rounded-2xl px-4 py-3 font-bold ${usePlan ? "text-amber-400" : "text-zinc-500"}`}
-                />
+
+                {isVipDiscount ? (
+                  <input
+                    type="number"
+                    placeholder="Valor (Ex: 25,00)"
+                    value={vipPrice}
+                    onChange={(e) => setVipPrice(e.target.value)}
+                    className="bg-zinc-950 border border-amber-500/50 rounded-2xl px-4 py-3 font-black text-amber-400 outline-none animate-in fade-in"
+                  />
+                ) : (
+                  <input
+                    type="text"
+                    value={usePlan ? "R$ 0,00" : manualPrice}
+                    readOnly
+                    className={`bg-zinc-800 border border-zinc-700 rounded-2xl px-4 py-3 font-bold outline-none ${usePlan ? "text-amber-400" : "text-zinc-500"}`}
+                  />
+                )}
               </div>
-              {activeClientPlan && (
-                <div className="bg-zinc-950/50 p-4 rounded-2xl border border-amber-500/30 flex flex-col gap-2 animate-in zoom-in-95 shadow-[0_0_15px_rgba(251,191,36,0.05)]">
-                  <label className="flex items-center gap-3 text-sm font-bold text-zinc-200 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={usePlan}
-                      onChange={(e) => setUsePlan(e.target.checked)}
-                      className="w-5 h-5 rounded border-zinc-700 text-amber-400 focus:ring-amber-400 bg-zinc-800"
-                    />
-                    Descontar do Plano Ativo
-                  </label>
-                  <p className="text-[10px] text-amber-400 font-bold uppercase ml-8 tracking-wider">
-                    {activeClientPlan.plan_name} • {activeClientPlan.cuts_used}/
-                    {activeClientPlan.cuts_allowed} usados
-                  </p>
-                </div>
-              )}
+
+              {/* OPÇÕES EXTRAS: PLANO E DESCONTO VIP */}
+              <div className="flex flex-col gap-3 mt-1 border-t border-zinc-800/60 pt-4">
+                {activeClientPlan && (
+                  <div className="bg-zinc-950/50 p-4 rounded-2xl border border-amber-500/30 flex flex-col gap-2 shadow-[0_0_15px_rgba(251,191,36,0.05)] transition-all">
+                    <label className="flex items-center gap-3 text-sm font-bold text-zinc-200 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={usePlan}
+                        onChange={(e) => {
+                          setUsePlan(e.target.checked);
+                          setIsVipDiscount(false);
+                        }}
+                        className="w-5 h-5 rounded border-zinc-700 text-amber-400 focus:ring-amber-400 bg-zinc-800"
+                      />
+                      Descontar do Plano Ativo
+                    </label>
+                    <p className="text-[10px] text-amber-400 font-bold uppercase ml-8 tracking-wider">
+                      {activeClientPlan.plan_name} •{" "}
+                      {activeClientPlan.cuts_used}/
+                      {activeClientPlan.cuts_allowed} usados
+                    </p>
+                  </div>
+                )}
+                <label className="flex items-center gap-3 text-sm font-bold text-zinc-300 cursor-pointer pl-1">
+                  <input
+                    type="checkbox"
+                    checked={isVipDiscount}
+                    onChange={(e) => {
+                      setIsVipDiscount(e.target.checked);
+                      setUsePlan(false);
+                      setVipPrice("");
+                    }}
+                    className="w-5 h-5 rounded border-zinc-700 text-amber-400 focus:ring-amber-400 bg-zinc-800"
+                  />
+                  Aplicar Desconto VIP (Preço Flexível)
+                </label>
+              </div>
+
               <input
                 type="date"
                 value={manualDate}
@@ -1526,7 +1661,7 @@ export default function BarbeiroPage() {
                   setManualDate(e.target.value);
                   setManualTime("");
                 }}
-                className="bg-zinc-800 border border-zinc-700 rounded-2xl px-4 py-3 text-white [color-scheme:dark] focus:border-amber-400 transition-colors"
+                className="bg-zinc-800 border border-zinc-700 rounded-2xl px-4 py-3 mt-2 text-white [color-scheme:dark] focus:border-amber-400 transition-colors"
               />
               <select
                 value={manualTime}
@@ -1553,7 +1688,7 @@ export default function BarbeiroPage() {
           </div>
         )}
 
-        {/* --- FINANÇAS (BI TURBINADO) --- */}
+        {/* --- FINANÇAS (BI TURBINADO - NÍVEL TRINKS) --- */}
         {activeTab === "financeiro" && (
           <div className="flex flex-col gap-6 animate-in fade-in duration-500">
             <header className="mb-2">
@@ -1567,11 +1702,33 @@ export default function BarbeiroPage() {
 
             {/* VISÃO GERAL (BARBEARIA) */}
             <section className="bg-zinc-900 border border-zinc-800 rounded-3xl p-5 flex flex-col gap-4">
-              <div className="flex items-center gap-2 border-b border-zinc-800 pb-3">
-                <BarChart3 className="text-amber-400" size={18} />
-                <h3 className="text-xs font-bold text-zinc-300 uppercase tracking-wider">
-                  Visão Geral da Barbearia (Mês)
-                </h3>
+              <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
+                <div className="flex items-center gap-2">
+                  <BarChart3 className="text-amber-400" size={18} />
+                  <h3 className="text-[10px] font-bold text-zinc-300 uppercase tracking-wider">
+                    Visão da Barbearia
+                  </h3>
+                </div>
+                <div className="flex bg-zinc-950 border border-zinc-800 rounded-lg p-0.5">
+                  <button
+                    onClick={() => setChartViewGlobal("diario")}
+                    className={`px-2 py-1 text-[9px] font-bold rounded-md uppercase transition-all ${chartViewGlobal === "diario" ? "bg-zinc-800 text-amber-400" : "text-zinc-500"}`}
+                  >
+                    Diário
+                  </button>
+                  <button
+                    onClick={() => setChartViewGlobal("mensal")}
+                    className={`px-2 py-1 text-[9px] font-bold rounded-md uppercase transition-all ${chartViewGlobal === "mensal" ? "bg-zinc-800 text-amber-400" : "text-zinc-500"}`}
+                  >
+                    Mensal
+                  </button>
+                  <button
+                    onClick={() => setChartViewGlobal("anual")}
+                    className={`px-2 py-1 text-[9px] font-bold rounded-md uppercase transition-all ${chartViewGlobal === "anual" ? "bg-zinc-800 text-amber-400" : "text-zinc-500"}`}
+                  >
+                    Anual
+                  </button>
+                </div>
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
@@ -1579,17 +1736,18 @@ export default function BarbeiroPage() {
                     Faturamento Geral
                   </p>
                   <p className="text-xl font-black text-white">
-                    R$ {finances.globalMesAtual.toFixed(2).replace(".", ",")}
-                  </p>
-                  <div className="flex items-center gap-2 flex-wrap mt-1">
-                    <span className="text-[9px] text-zinc-500 font-bold uppercase">
-                      Ant: R${" "}
-                      {finances.globalMesPassado.toFixed(2).replace(".", ",")}
+                    R$ {finances.globalMesAtual.toFixed(2).replace(".", ",")}{" "}
+                    <span className="text-[10px] font-normal text-zinc-500 lowercase">
+                      /mês
                     </span>
-                    {renderGrowth(
-                      finances.globalMesAtual,
-                      finances.globalMesPassado,
-                    )}
+                  </p>
+                  <div className="flex flex-col gap-1 mt-1">
+                    <span className="text-[10px] text-zinc-400 font-bold uppercase mt-1">
+                      Hoje:{" "}
+                      <strong className="text-emerald-400">
+                        R$ {finances.globalHoje.toFixed(2).replace(".", ",")}
+                      </strong>
+                    </span>
                   </div>
                 </div>
                 <div>
@@ -1597,139 +1755,49 @@ export default function BarbeiroPage() {
                     Total Atendimentos
                   </p>
                   <p className="text-xl font-black text-white">
-                    {finances.globalClientesMesAtual}
+                    {finances.globalClientesMesAtual}{" "}
+                    <span className="text-[10px] font-normal text-zinc-500 lowercase">
+                      /mês
+                    </span>
                   </p>
-                  <div className="flex items-center gap-2 flex-wrap mt-1">
-                    <span className="text-[9px] text-zinc-500 font-bold uppercase">
-                      Ant: {finances.globalClientesMesPassado}
+                  <div className="flex flex-col gap-1 mt-1">
+                    <span className="text-[10px] text-zinc-400 font-bold uppercase mt-1">
+                      Hoje:{" "}
+                      <strong className="text-emerald-400">
+                        {finances.globalClientesHoje}
+                      </strong>
                     </span>
-                    {renderGrowth(
-                      finances.globalClientesMesAtual,
-                      finances.globalClientesMesPassado,
-                    )}
-                  </div>
-                </div>
-              </div>
-              <div className="flex flex-col gap-1 mt-1 border-t border-zinc-800/60 pt-3">
-                <div className="flex justify-between text-[10px] text-zinc-400 font-bold uppercase">
-                  <span>Serviços (Planos e Cadeira):</span>
-                  <span className="text-zinc-200">
-                    R${" "}
-                    {finances.globalServicosMesAtual
-                      .toFixed(2)
-                      .replace(".", ",")}
-                  </span>
-                </div>
-                <div className="flex justify-between text-[10px] text-zinc-400 font-bold uppercase">
-                  <span>Produtos:</span>
-                  <span className="text-zinc-200">
-                    R${" "}
-                    {finances.globalProdutosMesAtual
-                      .toFixed(2)
-                      .replace(".", ",")}
-                  </span>
-                </div>
-              </div>
-
-              {/* Gráfico Geral Anual */}
-              <div className="flex justify-between gap-1 h-28 mt-4 pt-4 border-t border-zinc-800/60">
-                {finances.chartData.map((data, idx) => {
-                  const isCurrent = idx === new Date().getMonth();
-                  const height = `${(data.gen / finances.maxGen) * 100}%`;
-                  const barColor = isCurrent
-                    ? "bg-amber-400"
-                    : data.gen > 0
-                      ? "bg-zinc-600 group-hover:bg-amber-400/50"
-                      : "bg-zinc-800";
-
-                  return (
-                    <div
-                      key={data.name}
-                      className="flex flex-col items-center justify-end gap-1 flex-1 group h-full"
-                    >
-                      <div className="w-full relative h-full flex flex-col justify-end">
-                        <div
-                          className={`w-full rounded-t-sm transition-all duration-500 ${barColor}`}
-                          style={{ height: data.gen > 0 ? height : "2px" }}
-                        >
-                          <div className="absolute -top-11 left-1/2 -translate-x-1/2 bg-zinc-800 border border-zinc-700 text-white text-[9px] font-bold px-2 py-1.5 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10 flex flex-col items-center gap-0.5 shadow-xl">
-                            <span className="whitespace-nowrap text-amber-400">
-                              R$ {data.gen.toFixed(0)}
-                            </span>
-                            <span className="whitespace-nowrap text-zinc-300 text-[8px]">
-                              {data.genClients} cortes
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                      <span
-                        className={`text-[8px] font-bold uppercase ${isCurrent ? "text-amber-400" : "text-zinc-600"}`}
-                      >
-                        {data.name}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-            </section>
-
-            {/* SEUS NÚMEROS (INDIVIDUAL) */}
-            <section className="flex flex-col gap-4">
-              <h3 className="text-[10px] font-bold text-zinc-500 uppercase tracking-[0.2em] ml-2">
-                Seus Números
-              </h3>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="bg-zinc-900 border border-zinc-800 p-5 rounded-3xl flex flex-col gap-1">
-                  <div className="flex items-center gap-2 text-zinc-500 mb-1">
-                    <DollarSign size={16} className="text-amber-400" />
-                    <span className="text-xs font-bold uppercase tracking-wider">
-                      Receita
-                    </span>
-                  </div>
-                  <div className="text-2xl font-black text-white">
-                    R$ {finances.mesAtual.toFixed(2).replace(".", ",")}
-                  </div>
-                  <div className="flex items-center gap-2 flex-wrap mt-1">
-                    <span className="text-[9px] text-zinc-500 font-bold uppercase">
-                      Ant: R$ {finances.mesPassado.toFixed(2).replace(".", ",")}
-                    </span>
-                    {renderGrowth(finances.mesAtual, finances.mesPassado)}
-                  </div>
-                </div>
-                <div className="bg-zinc-900 border border-zinc-800 p-5 rounded-3xl flex flex-col gap-1">
-                  <div className="flex items-center gap-2 text-zinc-500 mb-1">
-                    <Scissors size={16} className="text-amber-400" />
-                    <span className="text-xs font-bold uppercase tracking-wider">
-                      Atendidos
-                    </span>
-                  </div>
-                  <div className="text-2xl font-black text-white">
-                    {finances.clientesMesAtual}
-                  </div>
-                  <div className="flex items-center gap-2 flex-wrap mt-1">
-                    <span className="text-[9px] text-zinc-500 font-bold uppercase">
-                      Ant: {finances.clientesMesPassado}
-                    </span>
-                    {renderGrowth(
-                      finances.clientesMesAtual,
-                      finances.clientesMesPassado,
-                    )}
                   </div>
                 </div>
               </div>
 
-              {/* Gráfico Individual Anual */}
-              <div className="bg-zinc-900 border border-zinc-800 p-5 rounded-3xl flex flex-col mt-2">
-                <h3 className="text-[10px] font-bold text-zinc-500 uppercase tracking-[0.2em] mb-4">
-                  Sua Evolução Anual (Receita e Cortes)
-                </h3>
-                <div className="flex justify-between gap-1 h-32">
-                  {finances.chartData.map((data, idx) => {
-                    const isCurrent = idx === new Date().getMonth();
-                    const height = `${(data.ind / finances.maxInd) * 100}%`;
+              {/* Gráfico Dinâmico */}
+              <div className="flex justify-between gap-1 h-32 mt-4 pt-4 border-t border-zinc-800/60">
+                {(() => {
+                  const activeChart =
+                    chartViewGlobal === "diario"
+                      ? finances.chartDiario
+                      : chartViewGlobal === "mensal"
+                        ? finances.chartMensal
+                        : finances.chartAnual;
+                  const activeMax =
+                    chartViewGlobal === "diario"
+                      ? finances.maxGenDiario
+                      : chartViewGlobal === "mensal"
+                        ? finances.maxGenMensal
+                        : finances.maxGenAnual;
+
+                  return activeChart.map((data, idx) => {
+                    const isCurrent =
+                      chartViewGlobal === "diario"
+                        ? idx === 6
+                        : chartViewGlobal === "mensal"
+                          ? idx === new Date().getMonth()
+                          : data.year === new Date().getFullYear();
+                    const height = `${(data.gen / activeMax) * 100}%`;
                     const barColor = isCurrent
                       ? "bg-amber-400"
-                      : data.ind > 0
+                      : data.gen > 0
                         ? "bg-zinc-600 group-hover:bg-amber-400/50"
                         : "bg-zinc-800";
 
@@ -1741,14 +1809,14 @@ export default function BarbeiroPage() {
                         <div className="w-full relative h-full flex flex-col justify-end">
                           <div
                             className={`w-full rounded-t-sm transition-all duration-500 ${barColor}`}
-                            style={{ height: data.ind > 0 ? height : "2px" }}
+                            style={{ height: data.gen > 0 ? height : "2px" }}
                           >
                             <div className="absolute -top-11 left-1/2 -translate-x-1/2 bg-zinc-800 border border-zinc-700 text-white text-[9px] font-bold px-2 py-1.5 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10 flex flex-col items-center gap-0.5 shadow-xl">
                               <span className="whitespace-nowrap text-amber-400">
-                                R$ {data.ind.toFixed(0)}
+                                R$ {data.gen.toFixed(0)}
                               </span>
                               <span className="whitespace-nowrap text-zinc-300 text-[8px]">
-                                {data.indClients} cortes
+                                {data.genClients} cortes
                               </span>
                             </div>
                           </div>
@@ -1760,7 +1828,149 @@ export default function BarbeiroPage() {
                         </span>
                       </div>
                     );
-                  })}
+                  });
+                })()}
+              </div>
+            </section>
+
+            {/* SEUS NÚMEROS (INDIVIDUAL) */}
+            <section className="flex flex-col gap-4">
+              <div className="flex justify-between items-center ml-2">
+                <h3 className="text-[10px] font-bold text-zinc-500 uppercase tracking-[0.2em]">
+                  Seus Números
+                </h3>
+                <div className="flex bg-zinc-900 border border-zinc-800 rounded-lg p-0.5 shadow-lg">
+                  <button
+                    onClick={() => setChartView("diario")}
+                    className={`px-2 py-1 text-[9px] font-bold rounded-md uppercase transition-all ${chartView === "diario" ? "bg-zinc-800 text-amber-400" : "text-zinc-500"}`}
+                  >
+                    Diário
+                  </button>
+                  <button
+                    onClick={() => setChartView("mensal")}
+                    className={`px-2 py-1 text-[9px] font-bold rounded-md uppercase transition-all ${chartView === "mensal" ? "bg-zinc-800 text-amber-400" : "text-zinc-500"}`}
+                  >
+                    Mensal
+                  </button>
+                  <button
+                    onClick={() => setChartView("anual")}
+                    className={`px-2 py-1 text-[9px] font-bold rounded-md uppercase transition-all ${chartView === "anual" ? "bg-zinc-800 text-amber-400" : "text-zinc-500"}`}
+                  >
+                    Anual
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="bg-zinc-900 border border-zinc-800 p-5 rounded-3xl flex flex-col gap-1">
+                  <div className="flex items-center gap-2 text-zinc-500 mb-1">
+                    <DollarSign size={16} className="text-amber-400" />
+                    <span className="text-xs font-bold uppercase tracking-wider">
+                      Receita
+                    </span>
+                  </div>
+                  <div className="text-2xl font-black text-white">
+                    R$ {finances.mesAtual.toFixed(2).replace(".", ",")}{" "}
+                    <span className="text-[10px] font-normal text-zinc-500 lowercase">
+                      /mês
+                    </span>
+                  </div>
+                  <div className="flex flex-col gap-1 mt-1 border-t border-zinc-800/60 pt-2">
+                    <span className="text-[10px] text-zinc-400 font-bold uppercase">
+                      Hoje:{" "}
+                      <strong className="text-emerald-400">
+                        R$ {finances.hoje.toFixed(2).replace(".", ",")}
+                      </strong>
+                    </span>
+                  </div>
+                </div>
+                <div className="bg-zinc-900 border border-zinc-800 p-5 rounded-3xl flex flex-col gap-1">
+                  <div className="flex items-center gap-2 text-zinc-500 mb-1">
+                    <Scissors size={16} className="text-amber-400" />
+                    <span className="text-xs font-bold uppercase tracking-wider">
+                      Atendidos
+                    </span>
+                  </div>
+                  <div className="text-2xl font-black text-white">
+                    {finances.clientesMesAtual}{" "}
+                    <span className="text-[10px] font-normal text-zinc-500 lowercase">
+                      /mês
+                    </span>
+                  </div>
+                  <div className="flex flex-col gap-1 mt-1 border-t border-zinc-800/60 pt-2">
+                    <span className="text-[10px] text-zinc-400 font-bold uppercase">
+                      Hoje:{" "}
+                      <strong className="text-emerald-400">
+                        {finances.clientesHoje}
+                      </strong>
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Gráfico Individual Dinâmico */}
+              <div className="bg-zinc-900 border border-zinc-800 p-5 rounded-3xl flex flex-col mt-2">
+                <h3 className="text-[10px] font-bold text-zinc-500 uppercase tracking-[0.2em] mb-4">
+                  Sua Evolução ({chartView})
+                </h3>
+                <div className="flex justify-between gap-1 h-32">
+                  {(() => {
+                    const activeChart =
+                      chartView === "diario"
+                        ? finances.chartDiario
+                        : chartView === "mensal"
+                          ? finances.chartMensal
+                          : finances.chartAnual;
+                    const activeMax =
+                      chartView === "diario"
+                        ? finances.maxIndDiario
+                        : chartView === "mensal"
+                          ? finances.maxIndMensal
+                          : finances.maxIndAnual;
+
+                    return activeChart.map((data, idx) => {
+                      const isCurrent =
+                        chartView === "diario"
+                          ? idx === 6
+                          : chartView === "mensal"
+                            ? idx === new Date().getMonth()
+                            : data.year === new Date().getFullYear();
+                      const height = `${(data.ind / activeMax) * 100}%`;
+                      const barColor = isCurrent
+                        ? "bg-amber-400"
+                        : data.ind > 0
+                          ? "bg-zinc-600 group-hover:bg-amber-400/50"
+                          : "bg-zinc-800";
+
+                      return (
+                        <div
+                          key={data.name}
+                          className="flex flex-col items-center justify-end gap-1 flex-1 group h-full"
+                        >
+                          <div className="w-full relative h-full flex flex-col justify-end">
+                            <div
+                              className={`w-full rounded-t-sm transition-all duration-500 ${barColor}`}
+                              style={{ height: data.ind > 0 ? height : "2px" }}
+                            >
+                              <div className="absolute -top-11 left-1/2 -translate-x-1/2 bg-zinc-800 border border-zinc-700 text-white text-[9px] font-bold px-2 py-1.5 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10 flex flex-col items-center gap-0.5 shadow-xl">
+                                <span className="whitespace-nowrap text-amber-400">
+                                  R$ {data.ind.toFixed(0)}
+                                </span>
+                                <span className="whitespace-nowrap text-zinc-300 text-[8px]">
+                                  {data.indClients} cortes
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                          <span
+                            className={`text-[8px] font-bold uppercase ${isCurrent ? "text-amber-400" : "text-zinc-600"}`}
+                          >
+                            {data.name}
+                          </span>
+                        </div>
+                      );
+                    });
+                  })()}
                 </div>
               </div>
             </section>
@@ -2419,7 +2629,7 @@ export default function BarbeiroPage() {
                         checked={absorbTodayCut}
                         onChange={(e) => setAbsorbTodayCut(e.target.checked)}
                         className="w-5 h-5 rounded border-zinc-700 text-amber-400 focus:ring-amber-400 bg-zinc-800"
-                      />
+                      />{" "}
                       Absorver Corte de Hoje (Upsell)
                     </label>
                     {absorbTodayCut && (
