@@ -15,7 +15,30 @@ import {
   LogOut,
   AlertTriangle,
   Edit2,
+  CreditCard,
 } from "lucide-react";
+
+const getLocalDateStr = (d = new Date()) => {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
+const timeToMinutes = (timeStr: string): number => {
+  const [hours, minutes] = timeStr.split(":").map(Number);
+  return hours * 60 + minutes;
+};
+
+const isPast = (dateStr: string, timeStr: string) => {
+  if (!dateStr || !timeStr) return false;
+  const now = new Date();
+  const cleanDate = dateStr.split("T")[0];
+  const [year, month, day] = cleanDate.split("-").map(Number);
+  const [hours, minutes] = timeStr.split(":").map(Number);
+  const apptDate = new Date(year, month - 1, day, hours, minutes + 30);
+  return now > apptDate;
+};
 
 type Barber = { id: string; display_name: string; whatsapp: string };
 type Appointment = {
@@ -23,10 +46,11 @@ type Appointment = {
   service: string;
   date: string;
   time: string;
+  status: string;
   barber_id: string;
+  client_plan_id?: string;
   barbers: { display_name: string };
 };
-
 type BarberService = {
   id: string;
   name: string;
@@ -34,19 +58,12 @@ type BarberService = {
   duration: number;
 };
 
-// Função auxiliar para converter "14:30" em 870 minutos
-const timeToMinutes = (timeStr: string): number => {
-  const [hours, minutes] = timeStr.split(":").map(Number);
-  return hours * 60 + minutes;
-};
-
 export default function ClientePage() {
   const router = useRouter();
   const supabase = createClient();
 
-  // Abas do Menu Inferior
   const [activeTab, setActiveTab] = useState<
-    "home" | "historico" | "agendar" | "fidelidade" | "perfil"
+    "home" | "historico" | "agendar" | "fidelidade" | "perfil font-sans"
   >("home");
 
   // Dados do Banco
@@ -61,9 +78,10 @@ export default function ClientePage() {
   const [pastAppointments, setPastAppointments] = useState<Appointment[]>([]);
   const [blockedDates, setBlockedDates] = useState<string[]>([]);
   const [takenSlots, setTakenSlots] = useState<string[]>([]);
-
-  // Estado que guarda a lista de serviços dinâmica do banco
   const [servicesList, setServicesList] = useState<BarberService[]>([]);
+
+  // ESTADO DO DASHBOARD VIP (PLANO ATIVO)
+  const [activePlan, setActivePlan] = useState<any>(null);
 
   // Form state do Novo Agendamento
   const [barberId, setBarberId] = useState("");
@@ -73,33 +91,28 @@ export default function ClientePage() {
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
+
+  // CONTROLE DO FLUXO VIP DE RECORRÊNCIA
+  const [bookingViaPlan, setBookingViaPlan] = useState(false);
+
   const [cancelConfirm, setCancelConfirm] = useState<{
     id: string;
     barber: string;
     service: string;
     date: string;
     time: string;
+    client_plan_id?: string;
   } | null>(null);
 
-  // Estados de controle para a Edição de Perfil
   const [isEditingProfile, setIsEditingProfile] = useState(false);
   const [editPhone, setEditPhone] = useState("");
   const [editBirthDate, setEditBirthDate] = useState("");
   const [loadingProfile, setLoadingProfile] = useState(false);
 
-  // Estados para Remarcação de Agendamento do Cliente
-  const [editingAppointment, setEditingAppointment] =
-    useState<Appointment | null>(null);
-  const [editDate, setEditDate] = useState("");
-  const [editTime, setEditTime] = useState("");
-  const [isUpdating, setIsUpdating] = useState(false);
-  const [editBlockedDates, setEditBlockedDates] = useState<string[]>([]);
-  const [editTakenSlots, setEditTakenSlots] = useState<string[]>([]);
-
   function handleOpenMaps() {
     const endereco =
       "Aliança Barber Club, Rua 50, 65 - Vila Santa Cecília, Volta Redonda - RJ, 27261-040";
-    const urlUniversal = `https://www.google.com/maps/search/?api=1&query=$${encodeURIComponent(endereco)}`;
+    const urlUniversal = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(endereco)}`;
     window.open(urlUniversal, "_blank");
   }
 
@@ -109,8 +122,9 @@ export default function ClientePage() {
     service: string,
     date: string,
     time: string,
+    client_plan_id?: string,
   ) {
-    setCancelConfirm({ id, barber, service, date, time });
+    setCancelConfirm({ id, barber, service, date, time, client_plan_id });
   }
 
   async function confirmCancel() {
@@ -122,6 +136,27 @@ export default function ClientePage() {
 
     if (!error) {
       setAppointments((prev) => prev.filter((a) => a.id !== cancelConfirm.id));
+
+      if (cancelConfirm.client_plan_id) {
+        const { data: pData } = await supabase
+          .from("client_plans")
+          .select("cuts_used")
+          .eq("id", cancelConfirm.client_plan_id)
+          .single();
+        if (pData && pData.cuts_used > 0) {
+          await supabase
+            .from("client_plans")
+            .update({ cuts_used: pData.cuts_used - 1 })
+            .eq("id", cancelConfirm.client_plan_id);
+          if (activePlan && activePlan.id === cancelConfirm.client_plan_id) {
+            setActivePlan((prev: any) => ({
+              ...prev,
+              cuts_used: pData.cuts_used - 1,
+            }));
+          }
+        }
+      }
+
       const barber = barbers.find(
         (b) => b.display_name === cancelConfirm.barber,
       );
@@ -136,25 +171,22 @@ export default function ClientePage() {
     setCancelConfirm(null);
   }
 
-  // Carregamento Inicial Isolado (AGORA COM OS SERVIÇOS DO BANCO!)
   useEffect(() => {
     async function load() {
       const {
         data: { user },
       } = await supabase.auth.getUser();
-      if (!user) {
-        router.push("/login");
-        return;
-      }
+      if (!user) return router.push("/login");
 
-      const todayStr = new Date().toISOString().split("T")[0];
+      const todayStr = getLocalDateStr();
 
       const [
         { data: prof },
         { data: barb },
         { data: upcomingAppts },
         { data: pastAppts },
-        { data: svcs }, // <-- Buscando os serviços aqui!
+        { data: svcs },
+        { data: planData },
       ] = await Promise.all([
         supabase
           .from("profiles")
@@ -165,7 +197,7 @@ export default function ClientePage() {
         supabase
           .from("appointments")
           .select(
-            "id, service, date, time, status, barber_id, barbers(display_name)",
+            "id, service, date, time, status, barber_id, client_plan_id, barbers(display_name)",
           )
           .eq("client_id", user.id)
           .eq("status", "confirmed")
@@ -183,14 +215,27 @@ export default function ClientePage() {
           .lt("date", todayStr)
           .order("date", { ascending: false })
           .limit(10),
-        supabase.from("services").select("*").order("name"), // Busca global da tabela services
+        supabase.from("services").select("*").order("name"),
+        // REVOLUÇÃO: Mudamos para carregar ordenado por data e limitar a 1 para evitar crash por duplicados
+        supabase
+          .from("client_plans")
+          .select(
+            "id, plan_name, price_paid, cuts_allowed, cuts_used, status, start_date, barber_id, created_at",
+          )
+          .eq("client_id", user.id)
+          .eq("status", "active")
+          .order("created_at", { ascending: false })
+          .limit(1),
       ]);
 
       setProfile(prof);
       setBarbers(barb || []);
       setAppointments((upcomingAppts as any) || []);
       setPastAppointments((pastAppts as any) || []);
-      setServicesList(svcs || []); // Salva na memória da tela do cliente
+      setServicesList(svcs || []);
+
+      // Define o primeiro plano ativo do array, ou null se estiver vazio
+      setActivePlan(planData && planData.length > 0 ? planData[0] : null);
 
       if (prof) {
         setEditPhone(prof.phone || "");
@@ -198,9 +243,8 @@ export default function ClientePage() {
       }
     }
     load();
-  }, []);
+  }, [activeTab]);
 
-  // Busca bloqueios do Barbeiro do Novo Agendamento
   useEffect(() => {
     if (!barberId) return;
     async function loadBlocked() {
@@ -213,7 +257,6 @@ export default function ClientePage() {
     loadBlocked();
   }, [barberId]);
 
-  // Busca Slots do Novo Agendamento LENDO DO BANCO
   useEffect(() => {
     if (!barberId || !date || !service || servicesList.length === 0) return;
 
@@ -232,9 +275,22 @@ export default function ClientePage() {
       const lunchStart = timeToMinutes("12:00");
       const lunchEnd = timeToMinutes("13:00");
 
-      // Busca na lista dinâmica do banco
-      const selectedSvc = servicesList.find((s) => s.name === service);
-      const duration = selectedSvc?.duration || 60;
+      let targetServiceForDuration = service;
+      if (bookingViaPlan && activePlan) {
+        const matchedSvc = servicesList.find(
+          (s) =>
+            activePlan.plan_name.toLowerCase().includes(s.name.toLowerCase()) ||
+            s.name.toLowerCase().includes(activePlan.plan_name.toLowerCase()),
+        );
+        targetServiceForDuration = matchedSvc
+          ? matchedSvc.name
+          : servicesList[0]?.name || service;
+      }
+
+      const selectedSvc = servicesList.find(
+        (s) => s.name === targetServiceForDuration,
+      );
+      const duration = selectedSvc?.duration || 30;
 
       HOURS.forEach((slot) => {
         const slotStart = timeToMinutes(slot);
@@ -244,18 +300,15 @@ export default function ClientePage() {
           blocked.push(slot);
           return;
         }
-
-        const invadiuAlmoco =
+        if (
           (slotStart >= lunchStart && slotStart < lunchEnd) ||
-          (slotStart < lunchStart && slotEnd > lunchStart);
-
-        if (invadiuAlmoco) {
+          (slotStart < lunchStart && slotEnd > lunchStart)
+        ) {
           blocked.push(slot);
           return;
         }
 
-        const nomeServicoTratado = service.toLowerCase();
-
+        const nomeServicoTratado = targetServiceForDuration.toLowerCase();
         if (
           nomeServicoTratado.includes("nevou") &&
           slotStart > timeToMinutes("15:00")
@@ -263,7 +316,6 @@ export default function ClientePage() {
           blocked.push(slot);
           return;
         }
-
         if (
           nomeServicoTratado.includes("selagem") &&
           slotStart > timeToMinutes("16:00")
@@ -274,7 +326,6 @@ export default function ClientePage() {
 
         const hasConflict = existingAppts.some((appt: any) => {
           const apptStart = timeToMinutes(appt.time);
-
           let apptSvcName = appt.service;
           if (apptSvcName.startsWith("MANUAL:"))
             apptSvcName = apptSvcName.split(" - ")[1] || "Corte";
@@ -286,99 +337,16 @@ export default function ClientePage() {
           return slotStart < apptEnd && slotEnd > apptStart;
         });
 
-        if (hasConflict) {
-          blocked.push(slot);
-        }
+        if (hasConflict) blocked.push(slot);
       });
       setTakenSlots(blocked);
     }
     loadSlots();
-  }, [barberId, date, service, servicesList]);
-
-  // Busca bloqueios e Slots para o Modal de Remarcação LENDO DO BANCO
-  useEffect(() => {
-    if (!editingAppointment || !editDate || servicesList.length === 0) return;
-
-    async function loadEditSlots() {
-      const { data } = await supabase
-        .from("appointments")
-        .select("time, service")
-        .eq("barber_id", editingAppointment!.barber_id)
-        .eq("date", editDate)
-        .eq("status", "confirmed");
-
-      const existingAppts = data || [];
-      const blocked: string[] = [];
-      const closingTime = timeToMinutes("19:00");
-      const limitNevouClient = timeToMinutes("15:00");
-
-      let actualServiceName = editingAppointment!.service;
-      if (actualServiceName.startsWith("MANUAL:")) {
-        actualServiceName = actualServiceName.split(" - ")[1] || "Corte";
-      }
-
-      const selectedSvc = servicesList.find(
-        (s) => s.name === actualServiceName,
-      );
-      const duration = selectedSvc?.duration || 60;
-
-      HOURS.forEach((slot) => {
-        const slotStart = timeToMinutes(slot);
-        const slotEnd = slotStart + duration;
-
-        if (
-          editDate === editingAppointment!.date &&
-          slot === editingAppointment!.time
-        ) {
-          return;
-        }
-
-        if (slotEnd > closingTime) {
-          blocked.push(slot);
-          return;
-        }
-
-        if (
-          actualServiceName.toLowerCase() === "nevou" &&
-          slotStart > limitNevouClient
-        ) {
-          blocked.push(slot);
-          return;
-        }
-
-        const hasConflict = existingAppts.some((appt: any) => {
-          if (
-            appt.time === editingAppointment!.time &&
-            editDate === editingAppointment!.date
-          )
-            return false;
-
-          const apptStart = timeToMinutes(appt.time);
-
-          let apptSvcName = appt.service;
-          if (apptSvcName.startsWith("MANUAL:"))
-            apptSvcName = apptSvcName.split(" - ")[1] || "Corte";
-
-          const apptSvc = servicesList.find((s) => s.name === apptSvcName);
-          const apptDuration = apptSvc?.duration || 60;
-          const apptEnd = apptStart + apptDuration;
-
-          return slotStart < apptEnd && slotEnd > apptStart;
-        });
-
-        if (hasConflict) {
-          blocked.push(slot);
-        }
-      });
-      setEditTakenSlots(blocked);
-    }
-    loadEditSlots();
-  }, [editDate, editingAppointment, servicesList]);
+  }, [barberId, date, service, servicesList, bookingViaPlan]);
 
   async function handleUpdateProfile() {
     if (!profile) return;
     setLoadingProfile(true);
-
     const {
       data: { user },
     } = await supabase.auth.getUser();
@@ -386,10 +354,7 @@ export default function ClientePage() {
 
     const { error } = await supabase
       .from("profiles")
-      .update({
-        phone: editPhone,
-        birth_date: editBirthDate || null,
-      })
+      .update({ phone: editPhone, birth_date: editBirthDate || null })
       .eq("id", user.id);
 
     if (!error) {
@@ -406,50 +371,6 @@ export default function ClientePage() {
     setLoadingProfile(false);
   }
 
-  async function handleReschedule() {
-    if (!editingAppointment || !editDate || !editTime) return;
-    setIsUpdating(true);
-
-    const { error } = await supabase
-      .from("appointments")
-      .update({ date: editDate, time: editTime })
-      .eq("id", editingAppointment.id);
-
-    if (!error) {
-      const barber = barbers.find((b) => b.id === editingAppointment.barber_id);
-      if (barber) {
-        const [y, m, d] = editDate.split("-");
-        const msg = encodeURIComponent(
-          `Olá ${barber.display_name}! Remarquei meu agendamento de *${editingAppointment.service}* para o dia *${d}/${m}/${y}* às *${editTime}*. Nome: ${profile?.name}`,
-        );
-        const urlWhatsapp = `https://api.whatsapp.com/send?phone=55${barber.whatsapp}&text=${msg}`;
-
-        setTimeout(() => {
-          window.location.href = urlWhatsapp;
-        }, 100);
-      }
-
-      const todayStr = new Date().toISOString().split("T")[0];
-      const { data: updatedAppts } = await supabase
-        .from("appointments")
-        .select(
-          "id, service, date, time, status, barber_id, barbers(display_name)",
-        )
-        .eq("client_id", profile!.id)
-        .eq("status", "confirmed")
-        .gte("date", todayStr)
-        .order("date")
-        .order("time")
-        .limit(5);
-
-      setAppointments((updatedAppts as any) || []);
-      setEditingAppointment(null);
-    } else {
-      alert("Erro ao remarcar. Tente novamente.");
-    }
-    setIsUpdating(false);
-  }
-
   async function handleAgendar() {
     setLoading(true);
     try {
@@ -457,32 +378,46 @@ export default function ClientePage() {
         data: { user },
       } = await supabase.auth.getUser();
 
-      // Busca os detalhes completos do serviço na lista que veio do banco
-      const svcDetails = servicesList.find((s) => s.name === service);
+      let appliedPrice = 0;
+      let finalServiceTag = service;
 
-      if (!svcDetails) {
-        alert("Erro ao identificar o serviço.");
-        setLoading(false);
-        return;
+      if (bookingViaPlan && activePlan) {
+        appliedPrice = 0;
+        finalServiceTag = `PLANO: ${activePlan.plan_name}`;
+      } else {
+        const svcDetails = servicesList.find((s) => s.name === service);
+        if (!svcDetails) {
+          alert("Erro ao identificar o serviço.");
+          setLoading(false);
+          return;
+        }
+        appliedPrice = svcDetails.price;
       }
 
-      // Injeta o `price_applied` congelado no banco
       const { error } = await supabase.from("appointments").insert({
         client_id: user!.id,
         barber_id: barberId,
-        service: service,
+        service: finalServiceTag,
         date,
         time,
         status: "confirmed",
-        price_applied: svcDetails.price, // Congela o valor matemático do corte
+        price_applied: appliedPrice,
+        client_plan_id: bookingViaPlan ? activePlan.id : null,
       });
 
       if (!error) {
+        if (bookingViaPlan && activePlan) {
+          await supabase
+            .from("client_plans")
+            .update({ cuts_used: activePlan.cuts_used + 1 })
+            .eq("id", activePlan.id);
+        }
+
         const barber = barbers.find((b) => b.id === barberId)!;
         const [y, m, d] = date.split("-");
 
-        const textoMensagem = `Olá ${barber.display_name}! Acabei de agendar um *${service}* para o dia *${d}/${m}/${y}* às *${time}*. Valor: R$ ${svcDetails.price.toFixed(2).replace(".", ",")}. Nome: ${profile?.name}`;
-        const urlWhatsapp = `https://api.whatsapp.com/send?phone=55${barber.whatsapp}&text=${encodeURIComponent(textoMensagem)}`;
+        const textoMensagem = `Olá ${barber.display_name}! Acabei de agendar um *${bookingViaPlan ? activePlan.plan_name : service}* para o dia *${d}/${m}/${y}* às *${time}*. ${bookingViaPlan ? "Debitado do meu Plano Ativo" : `Valor: R$ ${appliedPrice.toFixed(2).replace(".", ",")}`}. Nome: ${profile?.name}`;
+        const urlWorkspace = `https://api.whatsapp.com/send?phone=55${barber.whatsapp}&text=${encodeURIComponent(textoMensagem)}`;
 
         setSuccess(true);
         setStep(1);
@@ -490,23 +425,11 @@ export default function ClientePage() {
         setService("");
         setDate("");
         setTime("");
-
-        const { data: updatedAppts } = await supabase
-          .from("appointments")
-          .select(
-            "id, service, date, time, status, barber_id, barbers(display_name)",
-          )
-          .eq("client_id", user!.id)
-          .eq("status", "confirmed")
-          .gte("date", new Date().toISOString().split("T")[0])
-          .order("date")
-          .limit(5);
-
-        setAppointments((updatedAppts as any) || []);
+        setBookingViaPlan(false);
         setActiveTab("home");
 
         setTimeout(() => {
-          window.location.href = urlWhatsapp;
+          window.location.href = urlWorkspace;
         }, 100);
       }
     } catch (err) {
@@ -516,24 +439,17 @@ export default function ClientePage() {
     }
   }
 
-  const minDate = new Date().toISOString().split("T")[0];
+  async function handleLogout() {
+    await supabase.auth.signOut();
+    router.push("/login");
+  }
 
+  const minDate = getLocalDateStr();
   const isDateBlocked = (d: string) => {
     if (!d) return false;
     const day = new Date(d + "T12:00:00").getDay();
     return day === 0 || blockedDates.includes(d);
   };
-
-  const isEditDateBlocked = (d: string) => {
-    if (!d) return false;
-    const day = new Date(d + "T12:00:00").getDay();
-    return day === 0 || editBlockedDates.includes(d);
-  };
-
-  async function handleLogout() {
-    await supabase.auth.signOut();
-    router.push("/login");
-  }
 
   const NavButton = ({ icon: Icon, label, tabId }: any) => (
     <button
@@ -554,7 +470,7 @@ export default function ClientePage() {
           <div className="w-16" />
           <img
             src="/logo.png"
-            alt="Aliança Barber Club"
+            alt="Aliança"
             className="h-12 w-auto mx-auto mix-blend-lighten"
           />
           <button
@@ -567,21 +483,86 @@ export default function ClientePage() {
       </header>
 
       <div className="max-w-2xl mx-auto px-4 py-6 flex flex-col gap-6">
+        {/* --- ABA HOME --- */}
         {activeTab === "home" && (
           <div className="flex flex-col gap-6 animate-in fade-in duration-500">
-            <div>
-              <h2 className="text-2xl font-bold italic tracking-tight">
-                Olá, {profile?.name?.split(" ")[0]}! 👋
-              </h2>
-              <p className="text-zinc-500 text-sm mt-1">
-                Bem-vindo de volta à Aliança.
-              </p>
+            <div className="flex justify-between items-start">
+              <div>
+                <h2 className="text-2xl font-bold italic tracking-tight">
+                  Olá, {profile?.name?.split(" ")[0]}! 👋
+                </h2>
+                <p className="text-zinc-500 text-sm mt-1">
+                  Beta Aliança Barber Club.
+                </p>
+              </div>
             </div>
+
+            {/* DASHBOARD CARD VIP DO CLIENTE */}
+            {activePlan && (
+              <div className="bg-zinc-900 border border-amber-500/30 p-5 rounded-3xl flex flex-col gap-3 shadow-[0_4px_25px_rgba(251,191,36,0.04)] animate-in slide-in-from-top-4 duration-300">
+                <div className="flex justify-between items-start">
+                  <div>
+                    <span className="text-[10px] font-black text-amber-400 uppercase tracking-widest block mb-0.5">
+                      Sua Assinatura Ativa
+                    </span>
+                    <h4 className="font-black italic text-base text-white">
+                      {activePlan.plan_name}
+                    </h4>
+                  </div>
+                  <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded bg-amber-400/10 text-amber-400 border border-amber-400/20 tracking-wider">
+                    Membro BARBER CLUB
+                  </span>
+                </div>
+                <div className="flex flex-col gap-1.5 mt-1">
+                  <div className="w-full bg-zinc-950 rounded-full h-2 overflow-hidden border border-zinc-800">
+                    <div
+                      className="bg-amber-400 h-2 rounded-full transition-all duration-500"
+                      style={{
+                        width: `${((activePlan.cuts_allowed - activePlan.cuts_used) / activePlan.cuts_allowed) * 100}%`,
+                      }}
+                    ></div>
+                  </div>
+                  <div className="flex justify-between text-[10px] font-bold text-zinc-500 uppercase mt-0.5">
+                    <span>Saldo de Cortes</span>
+                    <span className="text-zinc-300">
+                      {activePlan.cuts_allowed - activePlan.cuts_used} de{" "}
+                      {activePlan.cuts_allowed} disponíveis
+                    </span>
+                  </div>
+                </div>
+                <div className="text-[10px] text-zinc-500 border-t border-zinc-800/60 pt-2.5 flex justify-between items-center font-mono">
+                  <span>
+                    Barbeiro Oficial:{" "}
+                    <strong className="text-zinc-300">
+                      {barbers.find((b) => b.id === activePlan.barber_id)
+                        ?.display_name || "Carregando..."}
+                    </strong>
+                  </span>
+                  <span>
+                    Renovação:{" "}
+                    {(() => {
+                      const sd = activePlan.start_date
+                        ? activePlan.start_date.split("T")[0]
+                        : activePlan.created_at.split("T")[0];
+                      const [y, m, d] = sd.split("-").map(Number);
+                      const exp = new Date(y, m - 1, d);
+                      exp.setDate(exp.getDate() + 30);
+                      return exp
+                        .toISOString()
+                        .split("T")[0]
+                        .split("-")
+                        .reverse()
+                        .join("/");
+                    })()}
+                  </span>
+                </div>
+              </div>
+            )}
 
             <DailyWord />
 
             {success && (
-              <div className="bg-emerald-900/40 border border-emerald-600 rounded-xl px-4 py-3 text-emerald-400 text-sm font-medium flex items-center gap-2">
+              <div className="bg-emerald-900/40 border border-emerald-600 rounded-xl px-4 py-3 text-emerald-400 text-sm font-medium flex items-center gap-2 animate-in fade-in">
                 ✓ Agendamento confirmado! O WhatsApp do barbeiro foi aberto.
                 <button
                   onClick={() => setSuccess(false)}
@@ -599,8 +580,8 @@ export default function ClientePage() {
               <div className="flex flex-col gap-3">
                 {appointments.length === 0 ? (
                   <div className="bg-zinc-900 border border-zinc-800 rounded-2xl px-4 py-6 text-center text-zinc-500 text-sm italic">
-                    Nenhum agendamento marcado. Clique no "+" abaixo para
-                    agendar!
+                    Nenhum agendamento confirmado. Clique no botão de "+" abaixo
+                    para marcar!
                   </div>
                 ) : (
                   appointments.map((a) => {
@@ -608,7 +589,7 @@ export default function ClientePage() {
                     return (
                       <div
                         key={a.id}
-                        className="bg-zinc-900 border border-zinc-800 rounded-2xl px-4 py-4 flex flex-col gap-3 shadow-[0_4px_20px_rgba(0,0,0,0.2)]"
+                        className="bg-zinc-900 border border-zinc-800 rounded-2xl px-4 py-4 flex flex-col gap-3 shadow-lg"
                       >
                         <div className="flex items-center gap-4">
                           <div className="bg-amber-400 text-zinc-950 rounded-xl px-3 py-2 text-center min-w-[56px]">
@@ -630,16 +611,6 @@ export default function ClientePage() {
                         </div>
                         <div className="flex gap-2 border-t border-zinc-800/60 pt-3">
                           <button
-                            onClick={() => {
-                              setEditingAppointment(a);
-                              setEditDate(a.date);
-                              setEditTime(a.time);
-                            }}
-                            className="flex-1 flex items-center justify-center gap-1.5 text-xs text-amber-400 hover:text-amber-300 bg-zinc-950/30 hover:bg-zinc-800 transition-colors font-bold border border-zinc-800 px-2 py-2 rounded-lg"
-                          >
-                            <Edit2 size={14} /> Remarcar
-                          </button>
-                          <button
                             onClick={() =>
                               cancelAppointment(
                                 a.id,
@@ -647,11 +618,12 @@ export default function ClientePage() {
                                 a.service,
                                 `${d}/${m}`,
                                 a.time,
+                                a.client_plan_id,
                               )
                             }
-                            className="flex-1 flex items-center justify-center gap-1.5 text-xs text-red-400 hover:text-red-300 bg-zinc-950/30 hover:bg-zinc-800 transition-colors font-bold border border-zinc-800 px-2 py-2 rounded-lg"
+                            className="w-full flex items-center justify-center gap-1.5 text-xs text-red-400 bg-zinc-950/30 hover:bg-red-950/20 transition-all font-bold border border-zinc-800 px-2 py-2 rounded-lg"
                           >
-                            Cancelar
+                            Cancelar Horário
                           </button>
                         </div>
                       </div>
@@ -667,7 +639,7 @@ export default function ClientePage() {
               </h3>
               <div
                 onClick={handleOpenMaps}
-                className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4 flex items-center justify-between cursor-pointer hover:border-zinc-700 transition-all active:scale-[0.98] shadow-[0_4px_20px_rgba(0,0,0,0.1)] animate-in fade-in duration-300"
+                className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4 flex items-center justify-between cursor-pointer hover:border-zinc-700 transition-all shadow-md"
               >
                 <div className="flex items-center gap-3">
                   <div className="bg-zinc-800 p-3 rounded-xl text-amber-400">
@@ -680,31 +652,29 @@ export default function ClientePage() {
                     <p className="text-zinc-400 text-xs mt-0.5">
                       Rua 50, Nº 65 - Vila Santa Cecília
                     </p>
-                    <p className="text-zinc-500 text-[10px] mt-0.5">
-                      Clique para abrir rotas no GPS (Maps, Waze)
-                    </p>
                   </div>
                 </div>
                 <span className="text-xs text-amber-400 font-bold ml-2">
-                  Como Chegar →
+                  Rotas →
                 </span>
               </div>
             </section>
           </div>
         )}
 
+        {/* HISTÓRICO */}
         {activeTab === "historico" && (
           <div className="flex flex-col gap-4 animate-in fade-in duration-500">
             <div>
               <h2 className="text-xl font-bold italic">Seu Histórico</h2>
               <p className="text-zinc-500 text-xs">
-                Acompanhe suas últimas visitas à Aliança.
+                Suas visitas anteriores à Aliança.
               </p>
             </div>
             <div className="flex flex-col gap-2">
               {pastAppointments.length === 0 ? (
                 <p className="text-zinc-600 text-sm italic text-center py-8">
-                  Nenhum corte passado registrado.
+                  Nenhum corte antigo registrado.
                 </p>
               ) : (
                 pastAppointments.map((a) => {
@@ -733,12 +703,22 @@ export default function ClientePage() {
           </div>
         )}
 
+        {/* AGENDAR */}
         {activeTab === "agendar" && (
           <div className="flex flex-col gap-6 animate-in slide-in-from-bottom-4 duration-500">
             <div className="flex items-center gap-2">
               {step > 1 && (
                 <button
-                  onClick={() => setStep((prev) => prev - 1)}
+                  onClick={() => {
+                    if (bookingViaPlan) {
+                      setBookingViaPlan(false);
+                      setBarberId("");
+                      setService("");
+                      setStep(1);
+                    } else {
+                      setStep((prev) => prev - 1);
+                    }
+                  }}
                   className="p-1.5 bg-zinc-900 border border-zinc-800 rounded-xl text-zinc-400 hover:text-white transition-colors"
                 >
                   <ChevronLeft size={16} />
@@ -752,8 +732,8 @@ export default function ClientePage() {
               </div>
             </div>
 
-            <div className="flex gap-2 mb-2">
-              {["Barbeiro", "Serviço", "Data e hora"].map((label, i) => (
+            <div className="flex gap-2 mb-1">
+              {[0, 1, 2].map((i) => (
                 <div
                   key={i}
                   className={`flex-1 h-1 rounded-full transition-colors ${step > i ? "bg-amber-400" : "bg-zinc-800"}`}
@@ -761,11 +741,42 @@ export default function ClientePage() {
               ))}
             </div>
 
-            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 flex flex-col gap-5 shadow-[0_10px_30px_rgba(0,0,0,0.3)]">
+            <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-5 flex flex-col gap-5 shadow-2xl">
               {step === 1 && (
                 <div className="flex flex-col gap-3 animate-in fade-in duration-300">
-                  <label className="text-zinc-400 text-xs font-bold uppercase tracking-wider">
-                    Escolha o Barbeiro
+                  {activePlan && (
+                    <button
+                      onClick={() => {
+                        setBookingViaPlan(true);
+                        setBarberId(activePlan.barber_id);
+                        setService(`PLANO: ${activePlan.plan_name}`);
+                        setStep(3);
+                      }}
+                      className="w-full bg-gradient-to-r from-zinc-900 to-zinc-800 border border-amber-400/40 p-4 rounded-2xl flex items-center justify-between hover:border-amber-400 transition-all text-left group shadow-xl mb-2"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="bg-amber-400 p-2.5 rounded-xl text-zinc-950 group-hover:scale-110 transition-transform">
+                          <CreditCard size={18} strokeWidth={2.5} />
+                        </div>
+                        <div>
+                          <h4 className="font-bold text-white text-sm">
+                            Utilizar Meu Plano
+                          </h4>
+                          <p className="text-[10px] text-amber-400 font-bold uppercase mt-0.5 tracking-wider">
+                            {activePlan.plan_name} (
+                            {activePlan.cuts_allowed - activePlan.cuts_used}{" "}
+                            restantes)
+                          </p>
+                        </div>
+                      </div>
+                      <span className="text-[10px] font-black bg-amber-400 text-zinc-950 px-2 py-1 rounded-md">
+                        R$ 0,00
+                      </span>
+                    </button>
+                  )}
+
+                  <label className="text-zinc-500 text-[10px] font-bold uppercase tracking-wider pl-1">
+                    Ou escolha um profissional para atendimento avulso:
                   </label>
                   <div className="grid grid-cols-2 gap-2">
                     {barbers.map((b) => (
@@ -790,12 +801,9 @@ export default function ClientePage() {
                     Selecione o Serviço
                   </label>
                   <div className="flex flex-col gap-2">
-                    {servicesList.length === 0 ? (
-                      <p className="text-zinc-500 text-sm italic">
-                        Nenhum serviço cadastrado ainda.
-                      </p>
-                    ) : (
-                      servicesList.map((s) => (
+                    {servicesList
+                      .filter((s) => !s.name.toLowerCase().includes("plano"))
+                      .map((s) => (
                         <button
                           key={s.id}
                           onClick={() => {
@@ -815,15 +823,14 @@ export default function ClientePage() {
                             R$ {s.price.toFixed(2).replace(".", ",")}
                           </span>
                         </button>
-                      ))
-                    )}
+                      ))}
                   </div>
                 </div>
               )}
 
               {step === 3 && (
                 <div className="flex flex-col gap-4 animate-in fade-in duration-300">
-                  <div className="flex flex-col gap-2">
+                  <div className="flex flex-col gap-1.5">
                     <label className="text-zinc-400 text-xs font-bold uppercase tracking-wider">
                       Selecione o Dia
                     </label>
@@ -837,7 +844,7 @@ export default function ClientePage() {
                           setDate(d);
                           setTime("");
                         } else {
-                          alert("Data bloqueada ou domingo.");
+                          alert("Data indisponível na agenda.");
                         }
                       }}
                       className="bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-amber-400 transition-colors [color-scheme:dark]"
@@ -851,17 +858,15 @@ export default function ClientePage() {
                       </label>
                       <div className="grid grid-cols-4 gap-2">
                         {HOURS.filter((h) => !takenSlots.includes(h)).map(
-                          (h) => {
-                            return (
-                              <button
-                                key={h}
-                                onClick={() => setTime(h)}
-                                className={`py-3 rounded-xl text-xs font-bold border transition-all ${time === h ? "bg-amber-400 text-zinc-950 border-amber-400" : "bg-zinc-800 border-zinc-700 text-white hover:border-amber-400"}`}
-                              >
-                                {h}
-                              </button>
-                            );
-                          },
+                          (h) => (
+                            <button
+                              key={h}
+                              onClick={() => setTime(h)}
+                              className={`py-3 rounded-xl text-xs font-bold border transition-all ${time === h ? "bg-amber-400 text-zinc-950 border-amber-400" : "bg-zinc-800 border-zinc-700 text-white hover:border-amber-400"}`}
+                            >
+                              {h}
+                            </button>
+                          ),
                         )}
                       </div>
                     </div>
@@ -869,56 +874,53 @@ export default function ClientePage() {
                 </div>
               )}
 
-              {barberId &&
-                service &&
-                date &&
-                time &&
-                !isDateBlocked(date) &&
-                step === 3 && (
-                  <div className="border-t border-zinc-800 pt-4 flex flex-col gap-3 animate-in zoom-in-95 duration-300">
-                    <div className="text-xs text-zinc-400 flex flex-col gap-1.5 bg-zinc-950/50 p-4 rounded-xl border border-zinc-800/60">
-                      <div>
-                        Barbeiro:{" "}
-                        <span className="text-white font-bold">
-                          {barbers.find((b) => b.id === barberId)?.display_name}
-                        </span>
-                      </div>
-                      <div>
-                        Serviço:{" "}
-                        <span className="text-white font-bold">{service}</span>
-                      </div>
-                      <div>
-                        Data e Hora:{" "}
-                        <span className="text-amber-400 font-bold">
-                          {date.split("-").reverse().join("/")} às {time}
-                        </span>
-                      </div>
-                      <div>
-                        Total:{" "}
-                        <span className="text-white font-black">
-                          R${" "}
-                          {servicesList
-                            .find((s) => s.name === service)
-                            ?.price.toFixed(2)
-                            .replace(".", ",")}
-                        </span>
-                      </div>
+              {barberId && date && time && step === 3 && (
+                <div className="border-t border-zinc-800 pt-4 flex flex-col gap-3 animate-in zoom-in-95 duration-300">
+                  <div className="text-xs text-zinc-400 flex flex-col gap-1.5 bg-zinc-950/50 p-4 rounded-xl border border-zinc-800/60 font-medium">
+                    <div>
+                      Barbeiro:{" "}
+                      <span className="text-white font-bold">
+                        {barbers.find((b) => b.id === barberId)?.display_name}
+                      </span>
                     </div>
-                    <button
-                      onClick={handleAgendar}
-                      disabled={loading}
-                      className="bg-amber-400 text-zinc-950 font-black py-4 rounded-xl hover:bg-amber-300 transition-all disabled:opacity-50 flex items-center justify-center gap-2 uppercase tracking-wider text-xs shadow-[0_10px_25px_rgba(251,191,36,0.15)]"
-                    >
-                      {loading
-                        ? "Agendando..."
-                        : "✓ Confirmar e notificar barbeiro"}
-                    </button>
+                    <div>
+                      Serviço:{" "}
+                      <span className="text-white font-bold">
+                        {bookingViaPlan ? activePlan.plan_name : service}
+                      </span>
+                    </div>
+                    <div>
+                      Data e Hora:{" "}
+                      <span className="text-amber-400 font-bold">
+                        {date.split("-").reverse().join("/")} às {time}
+                      </span>
+                    </div>
+                    <div>
+                      Total:{" "}
+                      <span className="text-white font-black">
+                        {bookingViaPlan
+                          ? "MEMBRO BARBER CLUB"
+                          : `R$ ${servicesList
+                              .find((s) => s.name === service)
+                              ?.price.toFixed(2)
+                              .replace(".", ",")}`}
+                      </span>
+                    </div>
                   </div>
-                )}
+                  <button
+                    onClick={handleAgendar}
+                    disabled={loading}
+                    className="bg-amber-400 text-zinc-950 font-black py-4 rounded-xl hover:bg-amber-300 transition-all disabled:opacity-50 flex items-center justify-center gap-2 uppercase tracking-wider text-xs shadow-lg"
+                  >
+                    {loading ? "Confirmando..." : "✓ Confirmar e Notificar"}
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         )}
 
+        {/* FIDELIDADE */}
         {activeTab === "fidelidade" && (
           <div className="flex flex-col items-center justify-center py-16 gap-4 text-center animate-in fade-in duration-500">
             <div className="bg-amber-500/10 p-4 rounded-full text-amber-400 animate-bounce">
@@ -938,7 +940,8 @@ export default function ClientePage() {
           </div>
         )}
 
-        {activeTab === "perfil" && (
+        {/* PERFIL */}
+        {activeTab === "perfil font-sans" && (
           <div className="flex flex-col gap-6 animate-in fade-in duration-500">
             <div className="flex justify-between items-center">
               <div>
@@ -957,7 +960,7 @@ export default function ClientePage() {
               )}
             </div>
 
-            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 flex flex-col gap-4 shadow-[0_4px_20px_rgba(0,0,0,0.3)]">
+            <div className="bg-zinc-900 border border-zinc-800 p-5 flex flex-col gap-4 shadow-lg">
               <div className="flex flex-col gap-1">
                 <span className="text-[10px] font-bold text-zinc-500 uppercase">
                   Nome completo
@@ -1012,14 +1015,14 @@ export default function ClientePage() {
                       setIsEditingProfile(false);
                     }}
                     disabled={loadingProfile}
-                    className="flex-1 py-3 rounded-xl border border-zinc-800 text-zinc-400 hover:text-white text-xs font-bold uppercase tracking-wider"
+                    className="flex-1 py-3 rounded-xl border border-zinc-700 text-zinc-400 hover:text-white text-xs font-bold uppercase tracking-wider"
                   >
                     Cancelar
                   </button>
                   <button
                     onClick={handleUpdateProfile}
                     disabled={loadingProfile}
-                    className="flex-1 py-3 rounded-xl bg-amber-400 hover:bg-amber-300 text-zinc-950 text-xs font-black uppercase tracking-wider disabled:opacity-50"
+                    className="flex-1 py-3 rounded-xl bg-amber-400 hover:bg-amber-300 text-zinc-950 text-xs font-black uppercase tracking-wider"
                   >
                     {loadingProfile ? "Salvando..." : "Salvar"}
                   </button>
@@ -1030,81 +1033,7 @@ export default function ClientePage() {
         )}
       </div>
 
-      {editingAppointment && (
-        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 px-4 backdrop-blur-sm">
-          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 w-full max-w-sm flex flex-col gap-5">
-            <div>
-              <h3 className="font-bold text-lg italic text-amber-400">
-                Remarcar Horário
-              </h3>
-              <p className="text-zinc-500 text-xs mt-1">
-                Serviço:{" "}
-                <span className="text-white font-medium">
-                  {editingAppointment.service}
-                </span>
-              </p>
-            </div>
-            <div className="flex flex-col gap-4">
-              <div className="flex flex-col gap-1.5">
-                <label className="text-zinc-400 text-xs font-bold uppercase tracking-wider">
-                  Nova Data
-                </label>
-                <input
-                  type="date"
-                  min={minDate}
-                  value={editDate}
-                  onChange={(e) => {
-                    const d = e.target.value;
-                    if (!isEditDateBlocked(d)) {
-                      setEditDate(d);
-                      setEditTime("");
-                    } else {
-                      alert("Data bloqueada/domingo.");
-                    }
-                  }}
-                  className="bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white text-sm outline-none focus:border-amber-400 [color-scheme:dark]"
-                />
-              </div>
-              {editDate && !isEditDateBlocked(editDate) && (
-                <div className="flex flex-col gap-1.5 animate-in zoom-in-95 duration-200">
-                  <label className="text-zinc-400 text-xs font-bold uppercase tracking-wider">
-                    Novo Horário
-                  </label>
-                  <div className="grid grid-cols-4 gap-2 max-h-48 overflow-y-auto pr-2 custom-scrollbar">
-                    {HOURS.filter((h) => !editTakenSlots.includes(h)).map(
-                      (h) => (
-                        <button
-                          key={h}
-                          onClick={() => setTime(h)}
-                          className={`py-3 rounded-xl text-xs font-bold border transition-all ${time === h ? "bg-amber-400 text-zinc-950 border-amber-400" : "bg-zinc-800 border-zinc-700 text-white hover:border-amber-400"}`}
-                        >
-                          {h}
-                        </button>
-                      ),
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
-            <div className="flex gap-3 mt-2 border-t border-zinc-800 pt-4">
-              <button
-                onClick={() => setEditingAppointment(null)}
-                className="flex-1 py-3 rounded-xl border border-zinc-700 text-zinc-400 hover:text-white font-bold text-xs uppercase"
-              >
-                Voltar
-              </button>
-              <button
-                onClick={handleReschedule}
-                disabled={!editDate || !editTime || isUpdating}
-                className="flex-1 py-3 rounded-xl bg-amber-400 hover:bg-amber-300 text-zinc-950 font-black text-xs uppercase disabled:opacity-50"
-              >
-                {isUpdating ? "Salvando..." : "Confirmar"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
+      {/* CONFIRMAÇÃO DE CANCELAMENTO */}
       {cancelConfirm && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 px-4 backdrop-blur-sm">
           <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 w-full max-w-sm flex flex-col gap-4">
@@ -1134,7 +1063,7 @@ export default function ClientePage() {
             <div className="flex gap-3 mt-1">
               <button
                 onClick={() => setCancelConfirm(null)}
-                className="flex-1 py-3 rounded-xl border border-zinc-800 text-zinc-400 hover:text-white font-bold text-xs uppercase"
+                className="flex-1 py-3 rounded-xl border border-zinc-700 text-zinc-400 hover:text-white font-bold text-xs uppercase"
               >
                 Voltar
               </button>
@@ -1149,6 +1078,7 @@ export default function ClientePage() {
         </div>
       )}
 
+      {/* NAVIGATION BAR */}
       <nav className="fixed bottom-0 left-0 right-0 bg-zinc-900/80 backdrop-blur-xl border-t border-zinc-800/50 px-4 pt-3 pb-8 flex justify-between items-center z-50">
         <NavButton icon={HomeIcon} label="Início" tabId="home" />
         <NavButton icon={Clock} label="Histórico" tabId="historico" />
