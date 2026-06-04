@@ -45,16 +45,13 @@ const timeToMinutes = (timeStr: string): number => {
 const isPast = (dateStr: string, timeStr: string) => {
   if (!dateStr || !timeStr) return false;
   const now = new Date();
-  const cleanDate = dateStr.split("T")[0]; // Garante que pegamos só o YYYY-MM-DD
+  const cleanDate = dateStr.split("T")[0];
   const [year, month, day] = cleanDate.split("-").map(Number);
   const [hours, minutes] = timeStr.split(":").map(Number);
-
-  // Adiciona 30 minutos de "duração do corte" para marcar como concluído
   const apptDate = new Date(year, month - 1, day, hours, minutes + 30);
   return now > apptDate;
 };
 
-// Componente para renderizar a porcentagem de crescimento Verde/Vermelha
 function renderGrowth(current: number, past: number) {
   if (past === 0 && current === 0) return null;
   const pct = past === 0 ? 100 : ((current - past) / past) * 100;
@@ -126,7 +123,6 @@ export default function BarbeiroPage() {
     "home" | "agenda" | "financeiro" | "gestao" | "novo"
   >("home");
 
-  // SELETORES DO DASHBOARD BI
   const [chartView, setChartView] = useState<"diario" | "mensal" | "anual">(
     "diario",
   );
@@ -134,13 +130,10 @@ export default function BarbeiroPage() {
     "diario" | "mensal" | "anual"
   >("diario");
 
-  // UTILIZANDO O DATA LOCAL CORRETO
   const todayStr = getLocalDateStr();
-
   const weekEnd = new Date();
   weekEnd.setDate(weekEnd.getDate() + 7);
   const weekEndStr = getLocalDateStr(weekEnd);
-
   const monthEnd = new Date();
   monthEnd.setDate(monthEnd.getDate() + 30);
   const monthEndStr = getLocalDateStr(monthEnd);
@@ -153,7 +146,6 @@ export default function BarbeiroPage() {
   const [manualTime, setManualTime] = useState("");
   const [usePlan, setUsePlan] = useState(false);
 
-  // ESTADOS DO DESCONTO VIP
   const [isVipDiscount, setIsVipDiscount] = useState(false);
   const [vipPrice, setVipPrice] = useState("");
 
@@ -240,25 +232,46 @@ export default function BarbeiroPage() {
   const [goalTarget, setGoalTarget] = useState("");
   const [isSavingGoal, setIsSavingGoal] = useState(false);
 
+  // --- CRM ESTADOS ---
   const [crmTab, setCrmTab] = useState<"assinaturas" | "clientes">(
     "assinaturas",
   );
   const [clientPlans, setClientPlans] = useState<any[]>([]);
   const [crmClients, setCrmClients] = useState<any[]>([]);
   const [isNewClientModalOpen, setIsNewClientModalOpen] = useState(false);
+
+  // Vender Plano
   const [isPlanModalOpen, setIsPlanModalOpen] = useState(false);
   const [planClientId, setPlanClientId] = useState("");
   const [newClientName, setNewClientName] = useState("");
   const [newClientPhone, setNewClientPhone] = useState("");
-  const [isSavingGhost, setIsSavingGhost] = useState(false);
   const [planName, setPlanName] = useState("");
   const [planPrice, setPlanPrice] = useState("");
   const [planCuts, setPlanCuts] = useState("4");
+  const [planStartDate, setPlanStartDate] = useState(todayStr);
   const [isSavingPlan, setIsSavingPlan] = useState(false);
   const [isMigratedPlan, setIsMigratedPlan] = useState(false);
   const [migratedCutsUsed, setMigratedCutsUsed] = useState("0");
   const [absorbTodayCut, setAbsorbTodayCut] = useState(false);
   const [appointmentToAbsorb, setAppointmentToAbsorb] = useState("");
+  const [isSavingGhost, setIsSavingGhost] = useState(false);
+
+  // Editar Plano
+  const [isEditPlanModalOpen, setIsEditPlanModalOpen] = useState(false);
+  const [editPlanId, setEditPlanId] = useState("");
+  const [editPlanCutsUsed, setEditPlanCutsUsed] = useState("");
+  const [editPlanCutsAllowed, setEditPlanCutsAllowed] = useState("");
+  const [editPlanPrice, setEditPlanPrice] = useState("");
+  const [editPlanStartDate, setEditPlanStartDate] = useState(todayStr);
+  const [isUpdatingPlan, setIsUpdatingPlan] = useState(false);
+
+  // Renovar Plano
+  const [isRenewPlanModalOpen, setIsRenewPlanModalOpen] = useState(false);
+  const [renewPlanData, setRenewPlanData] = useState<any>(null);
+  const [renewPlanPrice, setRenewPlanPrice] = useState("");
+  const [renewPlanCuts, setRenewPlanCuts] = useState("");
+  const [renewStartDate, setRenewStartDate] = useState(todayStr);
+  const [isRenewingPlan, setIsRenewingPlan] = useState(false);
 
   async function loadAppts() {
     if (!barberId) return;
@@ -319,13 +332,11 @@ export default function BarbeiroPage() {
     const lastDayLastMonth = getLocalDateStr(
       new Date(currentYear, currentMonthIdx, 0),
     );
-
     const today = getLocalDateStr(now);
     const yesterdayDate = new Date(now);
     yesterdayDate.setDate(yesterdayDate.getDate() - 1);
     const yesterdayStr = getLocalDateStr(yesterdayDate);
 
-    // ESTRUTURAS DO BI (Nível Trinks)
     const last7DaysDates = Array.from({ length: 7 }, (_, i) => {
       const d = new Date(now);
       d.setDate(d.getDate() - (6 - i));
@@ -364,9 +375,10 @@ export default function BarbeiroPage() {
       genClients: 0,
     }));
 
+    // Buscando todos os planos (incluindo expired) para garantir a integridade do caixa histórico
     const { data: allPlans } = await supabase
       .from("client_plans")
-      .select("price_paid, created_at, barber_id");
+      .select("price_paid, created_at, start_date, barber_id");
     const { data: allAppts } = await supabase
       .from("appointments")
       .select("price_applied, date, time, barber_id, status, service")
@@ -407,7 +419,6 @@ export default function BarbeiroPage() {
       const aYear = parseInt(ay);
       const aMonthIdx = parseInt(am) - 1;
 
-      // 1. DIÁRIO (Últimos 7 dias)
       const dayMatch = chartDiario.find((d) => d.date === dateStr);
       if (dayMatch) {
         dayMatch.gen += val;
@@ -418,7 +429,6 @@ export default function BarbeiroPage() {
         }
       }
 
-      // 2. MENSAL (Ano Atual)
       if (aYear === currentYear) {
         chartMensal[aMonthIdx].gen += val;
         if (!isBlock && !isProduct) chartMensal[aMonthIdx].genClients += 1;
@@ -428,7 +438,6 @@ export default function BarbeiroPage() {
         }
       }
 
-      // 3. ANUAL (Últimos 5 Anos)
       const yearMatch = chartAnual.find((y) => y.year === aYear);
       if (yearMatch) {
         yearMatch.gen += val;
@@ -439,7 +448,6 @@ export default function BarbeiroPage() {
         }
       }
 
-      // 4. TOTAIS INDIVIDUAIS (Cards)
       if (itemBarberId === barberId) {
         total += val;
         if (dateStr === today) {
@@ -459,7 +467,6 @@ export default function BarbeiroPage() {
         }
       }
 
-      // 5. TOTAIS GLOBAIS (Cards)
       if (dateStr === today) {
         globalHoje += val;
         if (!isBlock && !isProduct) globalClientesHoje++;
@@ -480,13 +487,10 @@ export default function BarbeiroPage() {
 
     if (allPlans) {
       allPlans.forEach((p) => {
-        processItem(
-          Number(p.price_paid),
-          p.created_at.split("T")[0],
-          false,
-          false,
-          p.barber_id,
-        );
+        const planDate = p.start_date
+          ? p.start_date.split("T")[0]
+          : p.created_at.split("T")[0];
+        processItem(Number(p.price_paid), planDate, false, false, p.barber_id);
       });
     }
 
@@ -531,7 +535,6 @@ export default function BarbeiroPage() {
     }
 
     globalServicosMesAtual = globalMesAtual - globalProdutosMesAtual;
-
     setFinances({
       hoje,
       ontem,
@@ -778,7 +781,12 @@ export default function BarbeiroPage() {
   }
 
   async function handleCancelByBarber(id: string) {
-    if (!confirm("Cancelar?")) return;
+    if (
+      !confirm(
+        "Cancelar agendamento? (Se for plano, o corte é devolvido ao cliente)",
+      )
+    )
+      return;
     const apptToCancel = [...today, ...week].find((a) => a.id === id);
     await supabase
       .from("appointments")
@@ -803,7 +811,11 @@ export default function BarbeiroPage() {
   }
 
   async function handleNoShow(id: string) {
-    if (!confirm("Registrar FURO? O plano NÃO devolve cota em caso de falta."))
+    if (
+      !confirm(
+        "Registrar FURO? O plano NÃO devolve cota em caso de falta do cliente.",
+      )
+    )
       return;
     await supabase
       .from("appointments")
@@ -813,6 +825,7 @@ export default function BarbeiroPage() {
     loadFinancesAndGoals();
   }
 
+  // --- CRM: FUNÇÕES DE PLANO ---
   async function handleCreateGhostClient() {
     if (!newClientName || !newClientPhone)
       return alert("Preencha Nome e Telefone!");
@@ -837,8 +850,8 @@ export default function BarbeiroPage() {
   }
 
   async function handleCreatePlan() {
-    if (!planClientId || !planName || !planCuts)
-      return alert("Preencha o cliente, nome do plano e cota!");
+    if (!planClientId || !planName || !planCuts || !planStartDate)
+      return alert("Preencha todos os campos do plano!");
     if (planClientId === "NEW" && (!newClientName || !newClientPhone))
       return alert("Preencha o Nome e WhatsApp!");
     if (!isMigratedPlan && !planPrice)
@@ -886,9 +899,11 @@ export default function BarbeiroPage() {
         cuts_allowed: parseInt(planCuts),
         cuts_used: initialCutsUsed,
         status: "active",
+        start_date: planStartDate,
       })
       .select()
       .single();
+
     if (!error) {
       if (
         absorbTodayCut &&
@@ -915,12 +930,82 @@ export default function BarbeiroPage() {
       setMigratedCutsUsed("0");
       setAbsorbTodayCut(false);
       setAppointmentToAbsorb("");
+      setPlanStartDate(todayStr);
       loadCRMData();
       loadAppts();
       loadFinancesAndGoals();
     }
     setIsSavingPlan(false);
   }
+
+  function openEditPlanModal(plan: any) {
+    setEditPlanId(plan.id);
+    setEditPlanCutsUsed(plan.cuts_used.toString());
+    setEditPlanCutsAllowed(plan.cuts_allowed.toString());
+    setEditPlanPrice(plan.price_paid.toFixed(2).replace(".", ","));
+    setEditPlanStartDate(
+      plan.start_date
+        ? plan.start_date.split("T")[0]
+        : plan.created_at.split("T")[0],
+    );
+    setIsEditPlanModalOpen(true);
+  }
+
+  async function handleUpdatePlan() {
+    setIsUpdatingPlan(true);
+    await supabase
+      .from("client_plans")
+      .update({
+        cuts_used: parseInt(editPlanCutsUsed),
+        cuts_allowed: parseInt(editPlanCutsAllowed),
+        price_paid: parseFloat(editPlanPrice.replace(",", ".")),
+        start_date: editPlanStartDate,
+      })
+      .eq("id", editPlanId);
+    setIsEditPlanModalOpen(false);
+    loadCRMData();
+    loadFinancesAndGoals();
+    setIsUpdatingPlan(false);
+  }
+
+  async function handleDeletePlan(id: string) {
+    if (!confirm("Tem certeza que deseja excluir esta assinatura?")) return;
+    await supabase.from("client_plans").delete().eq("id", id);
+    loadCRMData();
+    loadFinancesAndGoals();
+  }
+
+  function openRenewModal(plan: any) {
+    setRenewPlanData(plan);
+    setRenewPlanPrice(plan.price_paid.toFixed(2).replace(".", ","));
+    setRenewPlanCuts(plan.cuts_allowed.toString());
+    setRenewStartDate(todayStr);
+    setIsRenewPlanModalOpen(true);
+  }
+
+  async function handleRenewPlan() {
+    setIsRenewingPlan(true);
+    await supabase
+      .from("client_plans")
+      .update({ status: "expired" })
+      .eq("id", renewPlanData.id);
+    await supabase.from("client_plans").insert({
+      client_id: renewPlanData.client_id,
+      barber_id: renewPlanData.barber_id,
+      plan_name: renewPlanData.plan_name,
+      price_paid: parseFloat(renewPlanPrice.replace(",", ".")),
+      cuts_allowed: parseInt(renewPlanCuts),
+      cuts_used: 0,
+      status: "active",
+      start_date: renewStartDate,
+    });
+    setIsRenewPlanModalOpen(false);
+    setRenewPlanData(null);
+    loadCRMData();
+    loadFinancesAndGoals();
+    setIsRenewingPlan(false);
+  }
+  // -------------------------
 
   const clientTodayAppts = today.filter((a) => {
     if (a.status !== "confirmed" || a.service.startsWith("BLOQUEIO"))
@@ -1106,7 +1191,6 @@ export default function BarbeiroPage() {
     if (!manualCustomer || !manualService || !manualDate || !manualTime) return;
     setIsSaving(true);
 
-    // --- LÓGICA DE PRECIFICAÇÃO DINÂMICA (DESCONTO VIP) E PLANOS ---
     const selectedServiceData = servicesList.find(
       (sv) => sv.name === manualService,
     );
@@ -1148,7 +1232,7 @@ export default function BarbeiroPage() {
       setManualTime("");
       setUsePlan(false);
       setIsVipDiscount(false);
-      setVipPrice(""); // Reseta o desconto VIP
+      setVipPrice("");
       setActiveTab("agenda");
       loadAppts();
       loadFinancesAndGoals();
@@ -1616,7 +1700,6 @@ export default function BarbeiroPage() {
                 )}
               </div>
 
-              {/* OPÇÕES EXTRAS: PLANO E DESCONTO VIP */}
               <div className="flex flex-col gap-3 mt-1 border-t border-zinc-800/60 pt-4">
                 {activeClientPlan && (
                   <div className="bg-zinc-950/50 p-4 rounded-2xl border border-amber-500/30 flex flex-col gap-2 shadow-[0_0_15px_rgba(251,191,36,0.05)] transition-all">
@@ -2162,101 +2245,137 @@ export default function BarbeiroPage() {
 
                 {crmTab === "assinaturas" && (
                   <div className="flex flex-col gap-3 mt-2">
-                    {clientPlans.length === 0 ? (
+                    {/* AQUI ESTÁ A MÁGICA: FILTRAMOS APENAS OS PLANOS ATIVOS PARA NÃO POLUIR A TELA */}
+                    {clientPlans.filter((p) => p.status === "active").length ===
+                    0 ? (
                       <div className="text-center py-12 px-6 text-zinc-600 italic border border-zinc-800 rounded-3xl flex flex-col items-center gap-3 bg-zinc-900/30">
                         <CreditCard size={32} className="text-zinc-700" />{" "}
-                        Nenhum plano ativo no momento. Venda sua primeira
-                        assinatura!
+                        Nenhuma assinatura ativa na sua carteira.
                       </div>
                     ) : (
-                      clientPlans.map((plan) => {
-                        const startDate = new Date(plan.start_date);
-                        const expDate = new Date(startDate);
-                        expDate.setDate(startDate.getDate() + 30);
-                        const diffTime =
-                          expDate.getTime() - new Date().getTime();
-                        const diffDays = Math.ceil(
-                          diffTime / (1000 * 60 * 60 * 24),
-                        );
-                        let semCardClass = "border-zinc-800 bg-zinc-900";
-                        let semBadgeClass =
-                          "bg-emerald-500/10 text-emerald-400 border-emerald-500/20";
-                        let semText = "🟢 Saudável";
-                        if (
-                          diffDays <= 0 ||
-                          plan.cuts_used >= plan.cuts_allowed ||
-                          plan.status === "expired"
-                        ) {
-                          semCardClass = "border-red-500/30 bg-red-950/20";
-                          semBadgeClass =
-                            "bg-red-500/10 text-red-400 border-red-500/20";
-                          semText = "🔴 Esgotado / Expirado";
-                        } else if (
-                          diffDays <= 7 ||
-                          plan.cuts_used === plan.cuts_allowed - 1
-                        ) {
-                          semCardClass = "border-amber-500/30 bg-amber-950/20";
-                          semBadgeClass =
-                            "bg-amber-500/10 text-amber-400 border-amber-500/20";
-                          semText = `🟡 Atenção (${diffDays} dias ou 1 corte restante)`;
-                        }
-                        return (
-                          <div
-                            key={plan.id}
-                            className={`border p-5 rounded-3xl flex flex-col gap-4 transition-all shadow-[0_4px_20px_rgba(0,0,0,0.2)] ${semCardClass}`}
-                          >
-                            <div className="flex justify-between items-start">
-                              <div>
-                                <h4 className="font-bold text-white text-base">
-                                  {plan.profiles?.name || "Cliente Fantasma"}
-                                </h4>
-                                <p className="text-amber-400 text-xs mt-0.5 font-bold italic">
-                                  {plan.plan_name}
-                                </p>
-                              </div>
-                              <span
-                                className={`text-[10px] font-black uppercase px-2 py-1 rounded-md tracking-wider border ${semBadgeClass}`}
-                              >
-                                {semText}
-                              </span>
-                            </div>
-                            <div className="flex flex-col gap-1.5">
-                              <div className="w-full bg-zinc-800/80 rounded-full h-2 overflow-hidden">
-                                <div
-                                  className="bg-amber-400 h-2 rounded-full transition-all"
-                                  style={{
-                                    width: `${(plan.cuts_used / plan.cuts_allowed) * 100}%`,
-                                  }}
-                                ></div>
-                              </div>
-                              <div className="flex justify-between text-[10px] font-bold text-zinc-500 uppercase">
-                                <span>Consumo</span>
-                                <span className="text-zinc-300">
-                                  {plan.cuts_used} de {plan.cuts_allowed} cortes
+                      clientPlans
+                        .filter((p) => p.status === "active")
+                        .map((plan) => {
+                          const startDateString = plan.start_date
+                            ? plan.start_date.split("T")[0]
+                            : plan.created_at.split("T")[0];
+                          const [sy, sm, sd] = startDateString
+                            .split("-")
+                            .map(Number);
+                          const startDate = new Date(sy, sm - 1, sd);
+                          const expDate = new Date(startDate);
+                          expDate.setDate(startDate.getDate() + 30);
+                          const diffTime =
+                            expDate.getTime() - new Date().getTime();
+                          const diffDays = Math.ceil(
+                            diffTime / (1000 * 60 * 60 * 24),
+                          );
+
+                          let semCardClass = "border-zinc-800 bg-zinc-900";
+                          let semBadgeClass =
+                            "bg-emerald-500/10 text-emerald-400 border-emerald-500/20";
+                          let semText = "🟢 Saudável";
+
+                          if (
+                            diffDays <= 0 ||
+                            plan.cuts_used >= plan.cuts_allowed
+                          ) {
+                            semCardClass = "border-red-500/30 bg-red-950/20";
+                            semBadgeClass =
+                              "bg-red-500/10 text-red-400 border-red-500/20";
+                            semText = "🔴 Esgotado / Expirado";
+                          } else if (
+                            diffDays <= 7 ||
+                            plan.cuts_used === plan.cuts_allowed - 1
+                          ) {
+                            semCardClass =
+                              "border-amber-500/30 bg-amber-950/20";
+                            semBadgeClass =
+                              "bg-amber-500/10 text-amber-400 border-amber-500/20";
+                            semText = `🟡 Atenção (${diffDays} dias ou 1 corte restante)`;
+                          }
+
+                          return (
+                            <div
+                              key={plan.id}
+                              className={`border p-5 rounded-3xl flex flex-col gap-4 transition-all shadow-[0_4px_20px_rgba(0,0,0,0.2)] ${semCardClass}`}
+                            >
+                              <div className="flex justify-between items-start">
+                                <div>
+                                  <h4 className="font-bold text-white text-base">
+                                    {plan.profiles?.name || "Cliente Fantasma"}
+                                  </h4>
+                                  <p className="text-amber-400 text-xs mt-0.5 font-bold italic">
+                                    {plan.plan_name}
+                                  </p>
+                                </div>
+                                <span
+                                  className={`text-[10px] font-black uppercase px-2 py-1 rounded-md tracking-wider border ${semBadgeClass}`}
+                                >
+                                  {semText}
                                 </span>
                               </div>
-                            </div>
-                            <div className="flex justify-between items-center border-t border-zinc-800/60 pt-3">
-                              <div className="text-[10px] text-zinc-500">
-                                Vence em:{" "}
-                                {expDate
-                                  .toISOString()
-                                  .split("T")[0]
-                                  .split("-")
-                                  .reverse()
-                                  .join("/")}
+                              <div className="flex flex-col gap-1.5">
+                                <div className="w-full bg-zinc-800/80 rounded-full h-2 overflow-hidden">
+                                  <div
+                                    className="bg-amber-400 h-2 rounded-full transition-all"
+                                    style={{
+                                      width: `${(plan.cuts_used / plan.cuts_allowed) * 100}%`,
+                                    }}
+                                  ></div>
+                                </div>
+                                <div className="flex justify-between text-[10px] font-bold text-zinc-500 uppercase">
+                                  <span>Consumo</span>
+                                  <span className="text-zinc-300">
+                                    {plan.cuts_used} de {plan.cuts_allowed}{" "}
+                                    cortes
+                                  </span>
+                                </div>
                               </div>
-                              <div className="text-xs text-zinc-400">
-                                Receita:{" "}
-                                <span className="text-emerald-400 font-bold">
-                                  R${" "}
-                                  {plan.price_paid.toFixed(2).replace(".", ",")}
-                                </span>
+                              <div className="flex justify-between items-center border-t border-zinc-800/60 pt-3">
+                                <div className="text-[10px] text-zinc-500">
+                                  Vence em:{" "}
+                                  {expDate
+                                    .toISOString()
+                                    .split("T")[0]
+                                    .split("-")
+                                    .reverse()
+                                    .join("/")}
+                                </div>
+                                <div className="text-xs text-zinc-400">
+                                  Receita:{" "}
+                                  <span className="text-emerald-400 font-bold">
+                                    R${" "}
+                                    {plan.price_paid
+                                      .toFixed(2)
+                                      .replace(".", ",")}
+                                  </span>
+                                </div>
+                              </div>
+                              {/* AÇÕES CRM */}
+                              <div className="flex gap-2 justify-end items-center border-t border-zinc-800/60 pt-3 mt-1">
+                                <button
+                                  onClick={() => openRenewModal(plan)}
+                                  className="flex-1 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500 hover:text-zinc-950 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider transition-colors"
+                                >
+                                  Renovar
+                                </button>
+                                <button
+                                  onClick={() => openEditPlanModal(plan)}
+                                  className="flex-1 bg-zinc-800 text-zinc-300 hover:bg-zinc-700 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider transition-colors"
+                                >
+                                  Editar
+                                </button>
+                                <button
+                                  onClick={() => handleDeletePlan(plan.id)}
+                                  className="flex-1 bg-red-500/10 text-red-400 hover:bg-red-500 hover:text-white py-2 rounded-xl text-[10px] font-black uppercase tracking-wider transition-colors"
+                                >
+                                  Excluir
+                                </button>
                               </div>
                             </div>
-                          </div>
-                        );
-                      })
+                          );
+                        })
                     )}
                   </div>
                 )}
@@ -2583,22 +2702,42 @@ export default function BarbeiroPage() {
                   ))}
               </select>
               <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-[10px] text-zinc-500 font-bold uppercase mb-1 block pl-1">
+                    Valor (R$)
+                  </label>
+                  <input
+                    type="text"
+                    value={isMigratedPlan ? "0,00" : planPrice}
+                    onChange={(e) => setPlanPrice(e.target.value)}
+                    disabled={isMigratedPlan}
+                    className="w-full bg-zinc-800 border border-zinc-700 rounded-2xl px-4 py-3 text-white outline-none disabled:opacity-50 disabled:cursor-not-allowed"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] text-zinc-500 font-bold uppercase mb-1 block pl-1">
+                    Qtd Cortes
+                  </label>
+                  <input
+                    type="number"
+                    value={planCuts}
+                    onChange={(e) => setPlanCuts(e.target.value)}
+                    className="w-full bg-zinc-800 border border-zinc-700 rounded-2xl px-4 py-3 text-white outline-none"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="text-[10px] text-zinc-500 font-bold uppercase mb-1 block pl-1">
+                  Data de Início
+                </label>
                 <input
-                  type="text"
-                  placeholder="Valor (R$)"
-                  value={isMigratedPlan ? "0,00" : planPrice}
-                  onChange={(e) => setPlanPrice(e.target.value)}
-                  disabled={isMigratedPlan}
-                  className="bg-zinc-800 border border-zinc-700 rounded-2xl px-4 py-3 text-white outline-none disabled:opacity-50 disabled:cursor-not-allowed"
-                />
-                <input
-                  type="number"
-                  placeholder="Qtd Cortes"
-                  value={planCuts}
-                  onChange={(e) => setPlanCuts(e.target.value)}
-                  className="bg-zinc-800 border border-zinc-700 rounded-2xl px-4 py-3 text-white outline-none"
+                  type="date"
+                  value={planStartDate}
+                  onChange={(e) => setPlanStartDate(e.target.value)}
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded-2xl px-4 py-3 text-white outline-none [color-scheme:dark]"
                 />
               </div>
+
               <div className="flex flex-col gap-3 bg-zinc-950/50 p-4 rounded-2xl border border-zinc-800/60 mt-2">
                 <label className="flex items-center gap-3 text-sm font-bold text-zinc-300 cursor-pointer">
                   <input
@@ -2668,6 +2807,151 @@ export default function BarbeiroPage() {
                 className="flex-1 py-3 bg-amber-400 text-zinc-950 rounded-xl font-black uppercase text-xs disabled:opacity-50"
               >
                 {isSavingPlan ? "Processando..." : "Confirmar Venda"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL EDITAR PLANO (NOVO) */}
+      {isEditPlanModalOpen && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[100] px-4 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 w-full max-w-sm flex flex-col gap-5">
+            <div>
+              <h3 className="font-bold text-lg italic text-amber-400">
+                Editar Assinatura
+              </h3>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="text-[10px] text-zinc-500 font-bold uppercase mb-1 block pl-1">
+                  Cortes Usados
+                </label>
+                <input
+                  type="number"
+                  value={editPlanCutsUsed}
+                  onChange={(e) => setEditPlanCutsUsed(e.target.value)}
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white outline-none"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] text-zinc-500 font-bold uppercase mb-1 block pl-1">
+                  Cortes Totais
+                </label>
+                <input
+                  type="number"
+                  value={editPlanCutsAllowed}
+                  onChange={(e) => setEditPlanCutsAllowed(e.target.value)}
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white outline-none"
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4 mt-1">
+              <div>
+                <label className="text-[10px] text-zinc-500 font-bold uppercase mb-1 block pl-1">
+                  Valor (R$)
+                </label>
+                <input
+                  type="text"
+                  value={editPlanPrice}
+                  onChange={(e) => setEditPlanPrice(e.target.value)}
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white outline-none"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] text-zinc-500 font-bold uppercase mb-1 block pl-1">
+                  Data de Início
+                </label>
+                <input
+                  type="date"
+                  value={editPlanStartDate}
+                  onChange={(e) => setEditPlanStartDate(e.target.value)}
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white outline-none [color-scheme:dark]"
+                />
+              </div>
+            </div>
+            <div className="flex gap-3 border-t border-zinc-800 pt-4 mt-2">
+              <button
+                onClick={() => setIsEditPlanModalOpen(false)}
+                className="flex-1 py-3 text-zinc-400 font-bold text-sm"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleUpdatePlan}
+                disabled={isUpdatingPlan}
+                className="flex-1 bg-amber-400 text-zinc-950 py-3 rounded-xl font-black uppercase text-xs disabled:opacity-50"
+              >
+                {isUpdatingPlan ? "Salvando..." : "Salvar"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL RENOVAR PLANO (NOVO) */}
+      {isRenewPlanModalOpen && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[100] px-4 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 w-full max-w-sm flex flex-col gap-5">
+            <div>
+              <h3 className="font-bold text-lg italic text-emerald-400">
+                Renovar Assinatura
+              </h3>
+              <p className="text-zinc-500 text-xs mt-1">
+                O plano atual será encerrado e um novo ciclo de 30 dias se
+                iniciará no caixa.
+              </p>
+            </div>
+            <div className="flex flex-col gap-4">
+              <div>
+                <label className="text-[10px] text-zinc-500 font-bold uppercase mb-1 block pl-1">
+                  Início do Novo Ciclo
+                </label>
+                <input
+                  type="date"
+                  value={renewStartDate}
+                  onChange={(e) => setRenewStartDate(e.target.value)}
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white outline-none [color-scheme:dark]"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-[10px] text-zinc-500 font-bold uppercase mb-1 block pl-1">
+                    Valor (R$)
+                  </label>
+                  <input
+                    type="text"
+                    value={renewPlanPrice}
+                    onChange={(e) => setRenewPlanPrice(e.target.value)}
+                    className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] text-zinc-500 font-bold uppercase mb-1 block pl-1">
+                    Qtd Cortes
+                  </label>
+                  <input
+                    type="number"
+                    value={renewPlanCuts}
+                    onChange={(e) => setRenewPlanCuts(e.target.value)}
+                    className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white outline-none"
+                  />
+                </div>
+              </div>
+            </div>
+            <div className="flex gap-3 border-t border-zinc-800 pt-4 mt-2">
+              <button
+                onClick={() => setIsRenewPlanModalOpen(false)}
+                className="flex-1 py-3 text-zinc-400 font-bold text-sm"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleRenewPlan}
+                disabled={isRenewingPlan}
+                className="flex-1 bg-emerald-500 text-zinc-950 py-3 rounded-xl font-black uppercase text-[10px] disabled:opacity-50 shadow-lg shadow-emerald-500/20"
+              >
+                {isRenewingPlan ? "Processando..." : "Confirmar Renovação"}
               </button>
             </div>
           </div>
