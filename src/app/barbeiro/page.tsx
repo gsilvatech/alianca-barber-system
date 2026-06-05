@@ -106,6 +106,7 @@ export default function BarbeiroPage() {
   const [profile, setProfile] = useState<{ name: string; id: string } | null>(
     null,
   );
+
   const [barberId, setBarberId] = useState<string | null>(null);
   const [today, setToday] = useState<Appointment[]>([]);
   const [week, setWeek] = useState<Appointment[]>([]);
@@ -239,6 +240,34 @@ export default function BarbeiroPage() {
   const [clientPlans, setClientPlans] = useState<any[]>([]);
   const [crmClients, setCrmClients] = useState<any[]>([]);
   const [isNewClientModalOpen, setIsNewClientModalOpen] = useState(false);
+
+  // NOVA LINHA: Estado para a busca de clientes
+  const [clientSearch, setClientSearch] = useState("");
+
+  // NOVA FUNÇÃO: Excluir Cliente
+  async function handleDeleteClient(clientId: string, clientName: string) {
+    if (
+      !confirm(
+        `Tem certeza que deseja excluir o cliente "${clientName}"? Essa ação não pode ser desfeita.`,
+      )
+    )
+      return;
+
+    // Remove o cliente do banco de dados
+    const { error } = await supabase
+      .from("profiles")
+      .delete()
+      .eq("id", clientId);
+
+    if (error) {
+      alert(
+        "Erro ao excluir. Se o cliente tiver agendamentos ou planos antigos amarrados a ele, o banco bloqueia a exclusão por segurança.",
+      );
+      console.error(error);
+    } else {
+      loadCRMData(); // Recarrega a lista instantaneamente
+    }
+  }
 
   // Vender Plano
   const [isPlanModalOpen, setIsPlanModalOpen] = useState(false);
@@ -740,13 +769,11 @@ export default function BarbeiroPage() {
     if (!newBlockDate || !barberId) return;
     setLoadingBlock(true);
     if (isFullDay) {
-      await supabase
-        .from("blocked_dates")
-        .insert({
-          barber_id: barberId,
-          date: newBlockDate,
-          reason: newBlockReason || "Folga",
-        });
+      await supabase.from("blocked_dates").insert({
+        barber_id: barberId,
+        date: newBlockDate,
+        reason: newBlockReason || "Folga",
+      });
     } else {
       const motivoFinal = newBlockReason
         ? `BLOQUEIO: ${newBlockReason}`
@@ -830,14 +857,12 @@ export default function BarbeiroPage() {
     if (!newClientName || !newClientPhone)
       return alert("Preencha Nome e Telefone!");
     setIsSavingGhost(true);
-    const { error } = await supabase
-      .from("profiles")
-      .insert({
-        name: newClientName,
-        phone: newClientPhone,
-        role: "client",
-        is_ghost: true,
-      });
+    const { error } = await supabase.from("profiles").insert({
+      name: newClientName,
+      phone: newClientPhone,
+      role: "client",
+      is_ghost: true,
+    });
     if (!error) {
       setNewClientName("");
       setNewClientPhone("");
@@ -1018,13 +1043,11 @@ export default function BarbeiroPage() {
   async function handleAddGoal() {
     if (!goalTitle || !goalTarget) return;
     setIsSavingGoal(true);
-    await supabase
-      .from("barber_goals")
-      .insert({
-        barber_id: barberId,
-        title: goalTitle,
-        target_value: parseFloat(goalTarget.replace(",", ".")),
-      });
+    await supabase.from("barber_goals").insert({
+      barber_id: barberId,
+      title: goalTitle,
+      target_value: parseFloat(goalTarget.replace(",", ".")),
+    });
     setGoalTitle("");
     setGoalTarget("");
     setIsGoalModalOpen(false);
@@ -1055,15 +1078,13 @@ export default function BarbeiroPage() {
   async function handleAddProduct() {
     if (!productName || !productPrice || !productQuantity) return;
     setIsSavingProduct(true);
-    await supabase
-      .from("products")
-      .insert({
-        barber_id: barberId,
-        name: productName,
-        price: parseFloat(productPrice.replace(",", ".")),
-        quantity: parseInt(productQuantity),
-        category: productCategory,
-      });
+    await supabase.from("products").insert({
+      barber_id: barberId,
+      name: productName,
+      price: parseFloat(productPrice.replace(",", ".")),
+      quantity: parseInt(productQuantity),
+      category: productCategory,
+    });
     setProductName("");
     setProductPrice("");
     setProductQuantity("");
@@ -1108,15 +1129,13 @@ export default function BarbeiroPage() {
       .from("products")
       .update({ quantity: product.quantity - sellQuantity })
       .eq("id", sellProductId);
-    await supabase
-      .from("product_sales")
-      .insert({
-        barber_id: barberId,
-        product_name: product.name,
-        quantity: sellQuantity,
-        unit_price: product.price,
-        total_price: totalPrice,
-      });
+    await supabase.from("product_sales").insert({
+      barber_id: barberId,
+      product_name: product.name,
+      quantity: sellQuantity,
+      unit_price: product.price,
+      total_price: totalPrice,
+    });
     setIsSellModalOpen(false);
     setSellProductId("");
     setSellQuantity(1);
@@ -1127,14 +1146,12 @@ export default function BarbeiroPage() {
   async function handleAddService() {
     if (!svcName || !svcPrice || !svcDuration) return;
     setIsSavingSvc(true);
-    await supabase
-      .from("services")
-      .insert({
-        barber_id: barberId,
-        name: svcName,
-        price: parseFloat(svcPrice.replace(",", ".")),
-        duration: parseInt(svcDuration),
-      });
+    await supabase.from("services").insert({
+      barber_id: barberId,
+      name: svcName,
+      price: parseFloat(svcPrice.replace(",", ".")),
+      duration: parseInt(svcDuration),
+    });
     setSvcName("");
     setSvcPrice("");
     setSvcDuration("");
@@ -2380,33 +2397,71 @@ export default function BarbeiroPage() {
                   </div>
                 )}
                 {crmTab === "clientes" && (
-                  <div className="flex flex-col gap-3 mt-2">
-                    {crmClients.map((c) => (
-                      <div
-                        key={c.id}
-                        className="bg-zinc-900 border border-zinc-800 p-4 rounded-2xl flex justify-between items-center"
-                      >
-                        <div className="flex flex-col gap-0.5">
-                          <h4 className="font-bold text-zinc-100 flex items-center gap-2">
-                            {c.name}
-                            {c.is_ghost && (
-                              <span className="text-[9px] bg-zinc-800 border border-zinc-700 px-1.5 py-0.5 rounded text-zinc-400 uppercase tracking-wider">
-                                Balcão
+                  <div className="flex flex-col gap-3 mt-2 animate-in fade-in duration-300">
+                    {/* BARRA DE PESQUISA */}
+                    <input
+                      type="text"
+                      placeholder="Pesquisar cliente por nome..."
+                      value={clientSearch}
+                      onChange={(e) => setClientSearch(e.target.value)}
+                      className="bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white text-sm outline-none focus:border-amber-400 transition-colors w-full"
+                    />
+
+                    {/* LISTA DE CLIENTES FILTRADA */}
+                    <div className="flex flex-col gap-3 mt-1 max-h-[60vh] overflow-y-auto pr-2 custom-scrollbar">
+                      {crmClients
+                        .filter(
+                          (c) =>
+                            c.name
+                              .toLowerCase()
+                              .includes(clientSearch.toLowerCase()) ||
+                            (c.phone && c.phone.includes(clientSearch)),
+                        )
+                        .map((c) => (
+                          <div
+                            key={c.id}
+                            className="bg-zinc-900 border border-zinc-800 p-4 rounded-2xl flex justify-between items-center group hover:border-zinc-700 transition-colors"
+                          >
+                            <div className="flex flex-col gap-0.5">
+                              <h4 className="font-bold text-zinc-100 flex items-center gap-2">
+                                {c.name}
+                                {c.is_ghost && (
+                                  <span className="text-[9px] bg-zinc-800 border border-zinc-700 px-1.5 py-0.5 rounded text-zinc-400 uppercase tracking-wider">
+                                    Balcão
+                                  </span>
+                                )}
+                              </h4>
+                              <span className="text-xs text-zinc-500">
+                                {c.phone || "Sem contato"}
                               </span>
-                            )}
-                          </h4>
-                          <span className="text-xs text-zinc-500">
-                            {c.phone || "Sem contato"}
-                          </span>
+                              <span className="text-[10px] text-zinc-600 mt-0.5">
+                                Nasc:{" "}
+                                {c.birth_date
+                                  ? c.birth_date.split("-").reverse().join("/")
+                                  : "--/--/----"}
+                              </span>
+                            </div>
+
+                            <button
+                              onClick={() => handleDeleteClient(c.id, c.name)}
+                              className="text-zinc-600 hover:text-red-400 bg-zinc-950 p-2.5 rounded-xl border border-zinc-800 hover:border-red-900/50 transition-all opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
+                              title="Excluir Cliente"
+                            >
+                              <Trash2 size={18} />
+                            </button>
+                          </div>
+                        ))}
+
+                      {crmClients.filter((c) =>
+                        c.name
+                          .toLowerCase()
+                          .includes(clientSearch.toLowerCase()),
+                      ).length === 0 && (
+                        <div className="text-center py-10 text-zinc-600 italic text-sm">
+                          Nenhum cliente encontrado com esse nome.
                         </div>
-                        <div className="text-xs text-zinc-500 bg-zinc-950 px-2 py-1 rounded-lg">
-                          Nasc:{" "}
-                          {c.birth_date
-                            ? c.birth_date.split("-").reverse().join("/")
-                            : "--/--/----"}
-                        </div>
-                      </div>
-                    ))}
+                      )}
+                    </div>
                   </div>
                 )}
               </div>
