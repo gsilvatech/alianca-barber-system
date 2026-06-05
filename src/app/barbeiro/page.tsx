@@ -245,26 +245,25 @@ export default function BarbeiroPage() {
   const [clientSearch, setClientSearch] = useState("");
 
   // NOVA FUNÇÃO: Excluir Cliente
+  // NOVA FUNÇÃO: Excluir Cliente (Forçado via RPC)
   async function handleDeleteClient(clientId: string, clientName: string) {
     if (
       !confirm(
-        `Tem certeza que deseja excluir o cliente "${clientName}"? Essa ação não pode ser desfeita.`,
+        `Tem certeza que deseja excluir o cliente "${clientName}"? Essa ação apagará também os agendamentos amarrados a este perfil e não pode ser desfeita.`,
       )
     )
       return;
 
-    // Remove o cliente do banco de dados
-    const { error } = await supabase
-      .from("profiles")
-      .delete()
-      .eq("id", clientId);
+    // Dispara a função no banco de dados que quebra a trava de segurança e limpa tudo
+    const { error } = await supabase.rpc("force_delete_client", {
+      target_client_id: clientId,
+    });
 
     if (error) {
-      alert(
-        "Erro ao excluir. Se o cliente tiver agendamentos ou planos antigos amarrados a ele, o banco bloqueia a exclusão por segurança.",
-      );
+      alert("Erro ao tentar excluir a conta. Tente novamente.");
       console.error(error);
     } else {
+      alert("Conta excluída e CRM limpo com sucesso! 🧹");
       loadCRMData(); // Recarrega a lista instantaneamente
     }
   }
