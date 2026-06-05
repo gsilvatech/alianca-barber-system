@@ -59,9 +59,21 @@ export default function CadastroPage() {
 
       if (profileError) {
         console.error("Erro ao salvar perfil público:", profileError.message);
+      } else if (form.phone) {
+        // --- 3. A MÁGICA DA FUSÃO NO MOMENTO DO CADASTRO ---
+        const { data: foiFundido } = await supabase.rpc("merge_ghost_profile", {
+          user_phone: form.phone,
+        });
+
+        if (foiFundido) {
+          alert(
+            "Uau! 🎉 Identificamos que você já é de casa. O seu Plano Ativo e o seu Histórico de Cortes foram sincronizados automaticamente com a sua nova conta!",
+          );
+        }
       }
     }
 
+    // 4. Redireciona o cliente para a Home dele já com tudo carregado
     router.push("/cliente");
     router.refresh();
   }
