@@ -557,24 +557,48 @@ export default function ClientePage() {
   async function handleUpdateProfile() {
     if (!profile) return;
     setLoadingProfile(true);
+
     const {
       data: { user },
     } = await supabase.auth.getUser();
     if (!user) return;
 
+    // 1. Atualiza o perfil básico do cliente
     const { error } = await supabase
       .from("profiles")
       .update({ phone: editPhone, birth_date: editBirthDate || null })
       .eq("id", user.id);
 
     if (!error) {
+      // 2. DISPARA A MÁGICA DE FUSÃO E ESCUTA A RESPOSTA
+      let foiFundido = false;
+      if (editPhone) {
+        const { data: mergeResult } = await supabase.rpc(
+          "merge_ghost_profile",
+          { user_phone: editPhone },
+        );
+        foiFundido = mergeResult;
+      }
+
       setProfile((prev: any) => ({
         ...prev,
         phone: editPhone,
         birth_date: editBirthDate,
       }));
       setIsEditingProfile(false);
-      alert("Perfil atualizado com sucesso! 💎");
+
+      // 3. O EFEITO UAU! 🌟
+      if (foiFundido) {
+        alert(
+          "Uau! 🎉 Identificamos que você já é de casa. O seu Plano Ativo e o seu Histórico de Cortes foram sincronizados automaticamente com a sua nova conta!",
+        );
+      } else {
+        alert(
+          "Perfil atualizado com sucesso! 💎 Seja muito bem-vindo à Aliança Barber Club.",
+        );
+      }
+
+      window.location.reload();
     } else {
       alert("Erro ao atualizar o perfil.");
     }
