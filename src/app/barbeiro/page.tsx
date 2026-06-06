@@ -138,7 +138,7 @@ export default function BarbeiroPage() {
   const monthEnd = new Date();
   monthEnd.setDate(monthEnd.getDate() + 30);
   const monthEndStr = getLocalDateStr(monthEnd);
-
+  const [manualActivePlan, setManualActivePlan] = useState<any>(null);
   const [manualClientId, setManualClientId] = useState("AVULSO");
   const [manualCustomer, setManualCustomer] = useState("");
   const [manualService, setManualService] = useState("");
@@ -244,7 +244,6 @@ export default function BarbeiroPage() {
   // NOVA LINHA: Estado para a busca de clientes
   const [clientSearch, setClientSearch] = useState("");
 
-  // NOVA FUNÇÃO: Excluir Cliente
   // NOVA FUNÇÃO: Excluir Cliente (Forçado via RPC)
   async function handleDeleteClient(clientId: string, clientName: string) {
     if (
@@ -300,6 +299,7 @@ export default function BarbeiroPage() {
   const [renewPlanCuts, setRenewPlanCuts] = useState("");
   const [renewStartDate, setRenewStartDate] = useState(todayStr);
   const [isRenewingPlan, setIsRenewingPlan] = useState(false);
+  const [renewPlanName, setRenewPlanName] = useState("");
 
   async function loadAppts() {
     if (!barberId) return;
@@ -819,16 +819,20 @@ export default function BarbeiroPage() {
       .update({ status: "canceled" })
       .eq("id", id);
     if (apptToCancel?.client_plan_id) {
+      // 1. Buscamos a lista (array)
       const { data: planData } = await supabase
         .from("client_plans")
-        .select("cuts_used")
-        .eq("id", apptToCancel.client_plan_id)
-        .single();
-      if (planData && planData.cuts_used > 0) {
+        .select("id, cuts_used")
+        .eq("id", apptToCancel.client_plan_id) // Usamos o ID do plano diretamente
+        .limit(1);
+      // 2. Pegamos o primeiro item da lista: planData[0]
+      const plan = planData ? planData[0] : null;
+
+      if (plan && plan.cuts_used > 0) {
         await supabase
           .from("client_plans")
-          .update({ cuts_used: planData.cuts_used - 1 })
-          .eq("id", apptToCancel.client_plan_id);
+          .update({ cuts_used: plan.cuts_used - 1 })
+          .eq("id", plan.id);
       }
     }
     loadAppts();
@@ -1001,7 +1005,10 @@ export default function BarbeiroPage() {
 
   function openRenewModal(plan: any) {
     setRenewPlanData(plan);
-    setRenewPlanPrice(plan.price_paid.toFixed(2).replace(".", ","));
+    setRenewPlanName(plan.plan_name);
+    setRenewPlanPrice(
+      plan.price_paid > 0 ? plan.price_paid.toFixed(2).replace(".", ",") : "",
+    );
     setRenewPlanCuts(plan.cuts_allowed.toString());
     setRenewStartDate(todayStr);
     setIsRenewPlanModalOpen(true);
@@ -1016,7 +1023,7 @@ export default function BarbeiroPage() {
     await supabase.from("client_plans").insert({
       client_id: renewPlanData.client_id,
       barber_id: renewPlanData.barber_id,
-      plan_name: renewPlanData.plan_name,
+      plan_name: renewPlanName,
       price_paid: parseFloat(renewPlanPrice.replace(",", ".")),
       cuts_allowed: parseInt(renewPlanCuts),
       cuts_used: 0,
@@ -1024,7 +1031,6 @@ export default function BarbeiroPage() {
       start_date: renewStartDate,
     });
     setIsRenewPlanModalOpen(false);
-    setRenewPlanData(null);
     loadCRMData();
     loadFinancesAndGoals();
     setIsRenewingPlan(false);
@@ -1204,57 +1210,84 @@ export default function BarbeiroPage() {
       : null;
 
   async function handleManualSchedule() {
-    if (!manualCustomer || !manualService || !manualDate || !manualTime) return;
-    setIsSaving(true);
+    // Se for cliente do CRM, usamos o nome do cliente. Se for avulso, exigimos o manualCustomer.
+    const isAvulso = manualClientId === "AVULSO";
+    const nomeCliente = isAvulso
+      ? manualCustomer
+      : crmClients.find((c) => c.id === manualClientId)?.name;
 
-    const selectedServiceData = servicesList.find(
-      (sv) => sv.name === manualService,
-    );
-    let appliedPrice = selectedServiceData ? selectedServiceData.price : 0;
+    if (!nomeCliente || !manualService || !manualDate || !manualTime) {
+      alert("Preencha todos os campos! (Nome, Serviço, Data e Hora)");
+      return;
+    }
+
+    setIsSaving(true);
+    console.log("Iniciando salvamento...");
+
+    let finalPrice = 0;
     let finalServiceTag = `MANUAL: ${manualCustomer} - ${manualService}`;
     let planId = null;
 
-    if (usePlan && activeClientPlan) {
-      appliedPrice = 0;
-      finalServiceTag = `PLANO: ${activeClientPlan.plan_name}`;
-      planId = activeClientPlan.id;
+    // Lógica de definição de plano
+    if (usePlan && manualActivePlan) {
+      finalPrice = 0;
+      finalServiceTag = `PLANO: ${manualActivePlan.plan_name}`;
+      planId = manualActivePlan.id;
     } else if (isVipDiscount) {
-      appliedPrice = parseFloat(vipPrice.replace(",", ".")) || 0;
+      finalPrice = parseFloat(vipPrice.replace(",", ".")) || 0;
+    } else {
+      const svc = servicesList.find((s) => s.name === manualService);
+      finalPrice = svc ? svc.price : 0;
     }
 
-    const { error } = await supabase.from("appointments").insert({
-      barber_id: barberId,
-      client_id: manualClientId !== "AVULSO" ? manualClientId : profile?.id,
-      client_plan_id: planId,
-      date: manualDate,
-      time: manualTime,
-      service: finalServiceTag,
-      status: "confirmed",
-      price_applied: appliedPrice,
-    });
+    // --- O CORAÇÃO DO PROBLEMA ESTAVA AQUI ---
+    // Adicionei o .select() para forçar o Supabase a me devolver o objeto criado
+    const { data, error } = await supabase
+      .from("appointments")
+      .insert({
+        barber_id: barberId,
+        client_id: manualClientId !== "AVULSO" ? manualClientId : null,
+        client_plan_id: planId,
+        date: manualDate,
+        time: manualTime,
+        service: finalServiceTag,
+        status: "confirmed",
+        price_applied: finalPrice,
+      })
+      .select(); // <--- SEM O .select(), o Supabase às vezes não confirma o commit
 
-    if (!error) {
-      if (usePlan && activeClientPlan) {
-        await supabase
-          .from("client_plans")
-          .update({ cuts_used: activeClientPlan.cuts_used + 1 })
-          .eq("id", activeClientPlan.id);
+    if (error) {
+      console.error("ERRO DO SUPABASE:", error);
+      alert("Erro ao salvar: " + error.message);
+    } else {
+      console.log("Agendamento inserido com sucesso!");
+    }
+
+    // SE for um plano, vamos incrementar o contador de cortes usados
+    if (usePlan && planId && manualActivePlan) {
+      const { error: updateError } = await supabase
+        .from("client_plans")
+        .update({
+          cuts_used: (manualActivePlan.cuts_used || 0) + 1,
+        })
+        .eq("id", planId);
+
+      if (updateError) {
+        console.error("Erro ao debitar corte:", updateError);
+        alert("Agendamento criado, mas erro ao atualizar o plano!");
+      } else {
+        console.log("Corte debitado com sucesso!");
       }
-      setManualClientId("AVULSO");
-      setManualCustomer("");
-      setManualService("");
-      setManualPrice("");
-      setManualDate(todayStr);
-      setManualTime("");
-      setUsePlan(false);
-      setIsVipDiscount(false);
-      setVipPrice("");
-      setActiveTab("agenda");
-      loadAppts();
-      loadFinancesAndGoals();
-      loadCRMData();
     }
-    setIsSaving(false);
+
+    // Limpeza e recarga dos dados
+    setManualClientId("AVULSO");
+    setManualCustomer("");
+    setManualService("");
+    setActiveTab("agenda");
+    loadAppts();
+    loadFinancesAndGoals();
+    alert("Agendamento confirmado e corte debitado!");
   }
 
   const NavButton = ({ icon: Icon, label, tabId }: any) => (
@@ -1637,18 +1670,24 @@ export default function BarbeiroPage() {
             <div className="flex flex-col gap-4 bg-zinc-900/50 border border-zinc-800 p-6 rounded-3xl shadow-lg">
               <select
                 value={manualClientId}
-                onChange={(e) => {
-                  const val = e.target.value;
-                  setManualClientId(val);
-                  setUsePlan(false);
-                  if (val !== "AVULSO") {
-                    const c = crmClients.find((client) => client.id === val);
-                    setManualCustomer(c ? c.name : "");
+                onChange={async (e) => {
+                  const cId = e.target.value;
+                  setManualClientId(cId);
+
+                  // Busca se o cliente tem um plano ativo
+                  if (cId) {
+                    const { data: planData } = await supabase
+                      .from("client_plans")
+                      .select("*")
+                      .eq("client_id", cId)
+                      .eq("status", "active")
+                      .single();
+                    setManualActivePlan(planData || null);
                   } else {
-                    setManualCustomer("");
+                    setManualActivePlan(null);
                   }
                 }}
-                className="bg-zinc-800 border border-zinc-700 rounded-2xl px-4 py-3 text-white outline-none appearance-none font-bold focus:border-amber-400 transition-colors"
+                className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white outline-none"
               >
                 <option value="AVULSO">
                   👤 Cliente Avulso (Digitar nome...)
@@ -1680,24 +1719,46 @@ export default function BarbeiroPage() {
                   onChange={(e) => {
                     const s = e.target.value;
                     setManualService(s);
-                    const sD = servicesList.find((sv) => sv.name === s);
-                    if (sD)
-                      setManualPrice(
-                        `R$ ${sD.price.toFixed(2).replace(".", ",")}`,
-                      );
+
+                    // Lógica para definir o preço automaticamente
+                    if (s.startsWith("PLANO:")) {
+                      setManualPrice("R$ 0,00");
+                      setUsePlan(true); // Ativa o checkbox automaticamente
+                    } else {
+                      setUsePlan(false);
+                      const sD = servicesList.find((sv) => sv.name === s);
+                      if (sD) {
+                        setManualPrice(
+                          `R$ ${sD.price.toFixed(2).replace(".", ",")}`,
+                        );
+                      }
+                    }
                   }}
-                  className="bg-zinc-800 border border-zinc-700 rounded-2xl px-4 py-3 text-white outline-none appearance-none focus:border-amber-400 transition-colors"
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded-2xl px-4 py-3 text-white outline-none appearance-none focus:border-amber-400 transition-colors"
                 >
                   <option value="">Serviço...</option>
+
+                  {/* Opção do Plano */}
+                  {manualActivePlan &&
+                    manualActivePlan.cuts_used <
+                      manualActivePlan.cuts_allowed && (
+                      <option value={`PLANO: ${manualActivePlan.plan_name}`}>
+                        💳 USAR PLANO: {manualActivePlan.plan_name} (
+                        {manualActivePlan.cuts_allowed -
+                          manualActivePlan.cuts_used}{" "}
+                        restantes)
+                      </option>
+                    )}
+
+                  {/* Serviços normais */}
                   {servicesList
                     .filter((s) => !s.name.toLowerCase().includes("plano"))
                     .map((s) => (
                       <option key={s.id} value={s.name}>
-                        {s.name}
+                        {s.name} - R$ {s.price.toFixed(2).replace(".", ",")}
                       </option>
                     ))}
                 </select>
-
                 {isVipDiscount ? (
                   <input
                     type="number"
