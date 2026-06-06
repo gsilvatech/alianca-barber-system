@@ -48,7 +48,7 @@ const isPast = (dateStr: string, timeStr: string) => {
   const cleanDate = dateStr.split("T")[0];
   const [year, month, day] = cleanDate.split("-").map(Number);
   const [hours, minutes] = timeStr.split(":").map(Number);
-  const apptDate = new Date(year, month - 1, day, hours, minutes + 30);
+  const apptDate = new Date(year, month - 1, day, hours, minutes + 20);
   return now > apptDate;
 };
 
