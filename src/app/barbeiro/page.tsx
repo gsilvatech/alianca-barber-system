@@ -52,6 +52,13 @@ const isPast = (dateStr: string, timeStr: string) => {
   return now > apptDate;
 };
 
+const getNextWeekDate = (dateStr: string, weeksToAdd: number) => {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const date = new Date(y, m - 1, d);
+  date.setDate(date.getDate() + 7 * weeksToAdd);
+  return getLocalDateStr(date);
+};
+
 function renderGrowth(current: number, past: number) {
   if (past === 0 && current === 0) return null;
   const pct = past === 0 ? 100 : ((current - past) / past) * 100;
@@ -266,6 +273,10 @@ export default function BarbeiroPage() {
       loadCRMData(); // Recarrega a lista instantaneamente
     }
   }
+
+  // --- ESTADOS DE RECORRÊNCIA (MÓDULO VIP E BLOQUEIOS) ---
+  const [isRecurring, setIsRecurring] = useState(false);
+  const [recurringWeeks, setRecurringWeeks] = useState("4"); // Padrão: 1 mês (4 semanas)
 
   // Vender Plano
   const [isPlanModalOpen, setIsPlanModalOpen] = useState(false);
@@ -767,31 +778,60 @@ export default function BarbeiroPage() {
   async function handleSmartBlock() {
     if (!newBlockDate || !barberId) return;
     setLoadingBlock(true);
+
+    // 1. Verifica se vai repetir. Se o checkbox estiver marcado, usa o número de semanas. Senão, faz só 1 vez (o padrão atual).
+    const loops = isRecurring ? parseInt(recurringWeeks) : 1;
+
     if (isFullDay) {
-      await supabase.from("blocked_dates").insert({
-        barber_id: barberId,
-        date: newBlockDate,
-        reason: newBlockReason || "Folga",
-      });
+      // 2. Array para armazenar todos os dias inteiros gerados
+      const fullDayBlocks: any[] = [];
+
+      for (let i = 0; i < loops; i++) {
+        fullDayBlocks.push({
+          barber_id: barberId,
+          date: getNextWeekDate(newBlockDate, i), // Função que avança as semanas
+          reason: newBlockReason || "Folga",
+        });
+      }
+      // Dispara todos os dias de uma vez para o banco
+      await supabase.from("blocked_dates").insert(fullDayBlocks);
     } else {
+      // 3. Array para armazenar os horários específicos picados
       const motivoFinal = newBlockReason
         ? `BLOQUEIO: ${newBlockReason}`
         : "BLOQUEIO INDISPONÍVEL";
-      const blocksToInsert = selectedTimes.map((time) => ({
-        barber_id: barberId,
-        client_id: profile?.id,
-        date: newBlockDate,
-        time: time,
-        service: motivoFinal,
-        status: "confirmed",
-        price_applied: 0,
-      }));
-      await supabase.from("appointments").insert(blocksToInsert);
+
+      const timeBlocks: any[] = [];
+
+      for (let i = 0; i < loops; i++) {
+        const nextDate = getNextWeekDate(newBlockDate, i); // Avança a semana
+
+        // Pega todos os horários que o barbeiro clicou e injeta nessa data específica
+        selectedTimes.forEach((time) => {
+          timeBlocks.push({
+            barber_id: barberId,
+            client_id: profile?.id,
+            date: nextDate,
+            time: time,
+            service: motivoFinal,
+            status: "confirmed",
+            price_applied: 0,
+          });
+        });
+      }
+      // Dispara todos os horários picados de uma vez para o banco
+      await supabase.from("appointments").insert(timeBlocks);
     }
+
+    // 4. Limpeza final e recarga
+    setIsRecurring(false);
+    setRecurringWeeks("4");
     loadAppts();
     setNewBlockDate("");
     setNewBlockReason("");
     setSelectedTimes([]);
+    setIsRecurring(false); // Desmarca o checkbox de repetição
+    setRecurringWeeks("4"); // Reseta para o padrão de 1 mês
     setLoadingBlock(false);
   }
 
@@ -1003,23 +1043,40 @@ export default function BarbeiroPage() {
     loadFinancesAndGoals();
   }
 
+  // Abertura do modal de renovação pré-preenchido com os dados do plano selecionado
   function openRenewModal(plan: any) {
     setRenewPlanData(plan);
     setRenewPlanName(plan.plan_name);
-    setRenewPlanPrice(
-      plan.price_paid > 0 ? plan.price_paid.toFixed(2).replace(".", ",") : "",
-    );
+
+    // Busca o valor atualizado e oficial do plano na tabela de serviços
+    const svc = servicesList.find((s) => s.name === plan.plan_name);
+
+    if (svc) {
+      setRenewPlanPrice(svc.price.toFixed(2).replace(".", ","));
+    } else {
+      setRenewPlanPrice(
+        plan.price_paid > 0 ? plan.price_paid.toFixed(2).replace(".", ",") : "",
+      );
+    }
+
     setRenewPlanCuts(plan.cuts_allowed.toString());
     setRenewStartDate(todayStr);
     setIsRenewPlanModalOpen(true);
   }
 
   async function handleRenewPlan() {
+    if (!renewPlanName || !renewPlanPrice || !renewPlanCuts) {
+      return alert(
+        "Por favor, selecione um plano válido e preencha a quantidade de cortes.",
+      );
+    }
+
     setIsRenewingPlan(true);
     await supabase
       .from("client_plans")
       .update({ status: "expired" })
       .eq("id", renewPlanData.id);
+
     await supabase.from("client_plans").insert({
       client_id: renewPlanData.client_id,
       barber_id: renewPlanData.barber_id,
@@ -1030,6 +1087,7 @@ export default function BarbeiroPage() {
       status: "active",
       start_date: renewStartDate,
     });
+
     setIsRenewPlanModalOpen(false);
     loadCRMData();
     loadFinancesAndGoals();
@@ -1225,7 +1283,9 @@ export default function BarbeiroPage() {
     console.log("Iniciando salvamento...");
 
     let finalPrice = 0;
-    let finalServiceTag = `MANUAL: ${manualCustomer} - ${manualService}`;
+
+    // CORREÇÃO: Padrão é só o nome do serviço.
+    let finalServiceTag = manualService;
     let planId = null;
 
     // Lógica de definição de plano
@@ -1235,49 +1295,56 @@ export default function BarbeiroPage() {
       planId = manualActivePlan.id;
     } else if (isVipDiscount) {
       finalPrice = parseFloat(vipPrice.replace(",", ".")) || 0;
+      // Só bota a tag MANUAL se for realmente um cliente avulso
+      if (isAvulso)
+        finalServiceTag = `MANUAL: ${manualCustomer} - ${manualService}`;
     } else {
       const svc = servicesList.find((s) => s.name === manualService);
       finalPrice = svc ? svc.price : 0;
+      // Só bota a tag MANUAL se for realmente um cliente avulso
+      if (isAvulso)
+        finalServiceTag = `MANUAL: ${manualCustomer} - ${manualService}`;
     }
 
     // --- O CORAÇÃO DO PROBLEMA ESTAVA AQUI ---
-    // Adicionei o .select() para forçar o Supabase a me devolver o objeto criado
-    const { data, error } = await supabase
-      .from("appointments")
-      .insert({
+    // LÓGICA DE RECORRÊNCIA: Se estiver ativo, repete X semanas. Senão, faz só 1.
+    const loops = isRecurring ? parseInt(recurringWeeks) : 1;
+    const appointmentsToInsert = [];
+
+    for (let i = 0; i < loops; i++) {
+      const nextDate = getNextWeekDate(manualDate, i);
+      appointmentsToInsert.push({
         barber_id: barberId,
         client_id: manualClientId !== "AVULSO" ? manualClientId : null,
         client_plan_id: planId,
-        date: manualDate,
+        date: nextDate,
         time: manualTime,
         service: finalServiceTag,
         status: "confirmed",
         price_applied: finalPrice,
-      })
-      .select(); // <--- SEM O .select(), o Supabase às vezes não confirma o commit
-
-    if (error) {
-      console.error("ERRO DO SUPABASE:", error);
-      alert("Erro ao salvar: " + error.message);
-    } else {
-      console.log("Agendamento inserido com sucesso!");
+      });
     }
 
-    // SE for um plano, vamos incrementar o contador de cortes usados
+    // Manda a lista inteira de uma vez para o banco!
+    const { error } = await supabase
+      .from("appointments")
+      .insert(appointmentsToInsert);
+
+    // Lógica para debitar os cortes do plano (agora debita a quantidade de loops)
     if (usePlan && planId && manualActivePlan) {
-      const { error: updateError } = await supabase
+      await supabase
         .from("client_plans")
         .update({
-          cuts_used: (manualActivePlan.cuts_used || 0) + 1,
+          cuts_used: (manualActivePlan.cuts_used || 0) + loops,
         })
         .eq("id", planId);
+    }
 
-      if (updateError) {
-        console.error("Erro ao debitar corte:", updateError);
-        alert("Agendamento criado, mas erro ao atualizar o plano!");
-      } else {
-        console.log("Corte debitado com sucesso!");
-      }
+    if (error) {
+      console.error("Erro ao debitar corte:", error);
+      alert("Agendamento criado, mas erro ao atualizar o plano!");
+    } else {
+      console.log("Corte debitado com sucesso!");
     }
 
     // Limpeza e recarga dos dados
@@ -1285,6 +1352,8 @@ export default function BarbeiroPage() {
     setManualCustomer("");
     setManualService("");
     setActiveTab("agenda");
+    setIsRecurring(false);
+    setRecurringWeeks("4");
     loadAppts();
     loadFinancesAndGoals();
     alert("Agendamento confirmado e corte debitado!");
@@ -1609,6 +1678,32 @@ export default function BarbeiroPage() {
                     })}
                   </div>
                 )}
+                <div className="flex flex-col gap-3 mt-2 border-t border-zinc-800/60 pt-3 mb-2">
+                  <label className="flex items-center gap-3 text-sm font-bold text-amber-400 cursor-pointer pl-1">
+                    <input
+                      type="checkbox"
+                      checked={isRecurring}
+                      onChange={(e) => setIsRecurring(e.target.checked)}
+                      className="w-5 h-5 rounded border-amber-500/50 text-amber-400 focus:ring-amber-400 bg-zinc-950"
+                    />
+                    Repetir Bloqueio Semanalmente
+                  </label>
+                  {isRecurring && (
+                    <div className="flex items-center gap-3 bg-amber-400/10 border border-amber-400/20 p-3 rounded-xl animate-in zoom-in-95">
+                      <span className="text-[10px] text-amber-400 font-bold uppercase tracking-wider w-full">
+                        Por quantas semanas?
+                      </span>
+                      <input
+                        type="number"
+                        min="2"
+                        max="52"
+                        value={recurringWeeks}
+                        onChange={(e) => setRecurringWeeks(e.target.value)}
+                        className="w-20 bg-zinc-950 border border-amber-500/30 rounded-lg px-3 py-2 text-amber-400 font-black text-center outline-none"
+                      />
+                    </div>
+                  )}
+                </div>
                 <button
                   onClick={handleSmartBlock}
                   disabled={
@@ -1837,6 +1932,33 @@ export default function BarbeiroPage() {
                   ),
                 )}
               </select>
+              {/* CHECKBOX DA RECORRÊNCIA */}
+              <div className="flex flex-col gap-3 mt-2 border-t border-zinc-800/60 pt-3">
+                <label className="flex items-center gap-3 text-sm font-bold text-amber-400 cursor-pointer pl-1">
+                  <input
+                    type="checkbox"
+                    checked={isRecurring}
+                    onChange={(e) => setIsRecurring(e.target.checked)}
+                    className="w-5 h-5 rounded border-amber-500/50 text-amber-400 focus:ring-amber-400 bg-zinc-950"
+                  />
+                  Repetir Semanalmente (Recorrente)
+                </label>
+                {isRecurring && (
+                  <div className="flex items-center gap-3 bg-amber-400/10 border border-amber-400/20 p-3 rounded-xl animate-in zoom-in-95">
+                    <span className="text-[10px] text-amber-400 font-bold uppercase tracking-wider w-full">
+                      Por quantas semanas?
+                    </span>
+                    <input
+                      type="number"
+                      min="2"
+                      max="52"
+                      value={recurringWeeks}
+                      onChange={(e) => setRecurringWeeks(e.target.value)}
+                      className="w-20 bg-zinc-950 border border-amber-500/30 rounded-lg px-3 py-2 text-amber-400 font-black text-center outline-none"
+                    />
+                  </div>
+                )}
+              </div>
               <button
                 onClick={handleManualSchedule}
                 disabled={isSaving || !manualTime}
@@ -3005,6 +3127,7 @@ export default function BarbeiroPage() {
       )}
 
       {/* MODAL RENOVAR PLANO (NOVO) */}
+      {/* MODAL RENOVAR PLANO (BLINDADO) */}
       {isRenewPlanModalOpen && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[100] px-4 backdrop-blur-sm animate-in fade-in duration-200">
           <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 w-full max-w-sm flex flex-col gap-5">
@@ -3013,11 +3136,39 @@ export default function BarbeiroPage() {
                 Renovar Assinatura
               </h3>
               <p className="text-zinc-500 text-xs mt-1">
-                O plano atual será encerrado e um novo ciclo de 30 dias se
-                iniciará no caixa.
+                O plano antigo será encerrado e um novo ciclo se iniciará no
+                caixa.
               </p>
             </div>
             <div className="flex flex-col gap-4">
+              {/* SELECT DE PLANOS (A MÁGICA ACONTECE AQUI) */}
+              <div>
+                <label className="text-[10px] text-zinc-500 font-bold uppercase mb-1 block pl-1">
+                  Qual Plano? (Upgrade / Downgrade)
+                </label>
+                <select
+                  value={renewPlanName}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setRenewPlanName(val);
+                    const svc = servicesList.find((s) => s.name === val);
+                    if (svc) {
+                      setRenewPlanPrice(svc.price.toFixed(2).replace(".", ","));
+                    }
+                  }}
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white outline-none appearance-none font-bold focus:border-emerald-400 transition-colors"
+                >
+                  <option value="">Selecione o Plano...</option>
+                  {servicesList
+                    .filter((s) => s.name.toLowerCase().includes("plano"))
+                    .map((s) => (
+                      <option key={s.id} value={s.name}>
+                        {s.name} - R$ {s.price.toFixed(2).replace(".", ",")}
+                      </option>
+                    ))}
+                </select>
+              </div>
+
               <div>
                 <label className="text-[10px] text-zinc-500 font-bold uppercase mb-1 block pl-1">
                   Início do Novo Ciclo
@@ -3029,6 +3180,7 @@ export default function BarbeiroPage() {
                   className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white outline-none [color-scheme:dark]"
                 />
               </div>
+
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="text-[10px] text-zinc-500 font-bold uppercase mb-1 block pl-1">
@@ -3037,8 +3189,8 @@ export default function BarbeiroPage() {
                   <input
                     type="text"
                     value={renewPlanPrice}
-                    onChange={(e) => setRenewPlanPrice(e.target.value)}
-                    className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white outline-none"
+                    readOnly
+                    className="w-full bg-zinc-800/50 border border-zinc-700/50 text-emerald-400 font-black rounded-xl px-4 py-3 outline-none cursor-not-allowed"
                   />
                 </div>
                 <div>
@@ -3057,16 +3209,16 @@ export default function BarbeiroPage() {
             <div className="flex gap-3 border-t border-zinc-800 pt-4 mt-2">
               <button
                 onClick={() => setIsRenewPlanModalOpen(false)}
-                className="flex-1 py-3 text-zinc-400 font-bold text-sm"
+                className="flex-1 py-3 text-zinc-400 font-bold text-sm hover:text-white transition-colors"
               >
                 Cancelar
               </button>
               <button
                 onClick={handleRenewPlan}
-                disabled={isRenewingPlan}
-                className="flex-1 bg-emerald-500 text-zinc-950 py-3 rounded-xl font-black uppercase text-[10px] disabled:opacity-50 shadow-lg shadow-emerald-500/20"
+                disabled={isRenewingPlan || !renewPlanName}
+                className="flex-1 bg-emerald-500 text-zinc-950 py-3 rounded-xl font-black uppercase text-[10px] disabled:opacity-50 shadow-lg shadow-emerald-500/20 hover:bg-emerald-400 transition-colors"
               >
-                {isRenewingPlan ? "Processando..." : "Confirmar Renovação"}
+                {isRenewingPlan ? "Processando..." : "Confirmar"}
               </button>
             </div>
           </div>
