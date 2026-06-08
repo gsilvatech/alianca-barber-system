@@ -59,6 +59,54 @@ const getNextWeekDate = (dateStr: string, weeksToAdd: number) => {
   return getLocalDateStr(date);
 };
 
+// Agrupa bloqueios consecutivos do mesmo motivo em um único item para facilitar a visualização
+function groupAppointments(appts: any[]) {
+  const grouped: any[] = [];
+  let currentGroup: any = null;
+
+  appts.forEach((appt) => {
+    const isBlock = appt.service?.startsWith("BLOQUEIO");
+
+    if (isBlock) {
+      if (!currentGroup) {
+        // Inicia um novo grupo
+        currentGroup = {
+          ...appt,
+          isGroupedBlock: true,
+          blockIds: [appt.id],
+          endTime: appt.time,
+        };
+      } else if (
+        currentGroup.date === appt.date &&
+        currentGroup.service === appt.service
+      ) {
+        // É o mesmo dia e o mesmo motivo? Agrupa!
+        currentGroup.blockIds.push(appt.id);
+        currentGroup.endTime = appt.time; // Atualiza o fim para o último horário
+      } else {
+        // Mudou o dia ou o motivo, fecha o grupo atual e inicia outro
+        grouped.push(currentGroup);
+        currentGroup = {
+          ...appt,
+          isGroupedBlock: true,
+          blockIds: [appt.id],
+          endTime: appt.time,
+        };
+      }
+    } else {
+      // Se for cliente normal, fecha o grupo de bloqueio (se houver) e joga na lista normal
+      if (currentGroup) {
+        grouped.push(currentGroup);
+        currentGroup = null;
+      }
+      grouped.push(appt);
+    }
+  });
+
+  if (currentGroup) grouped.push(currentGroup);
+  return grouped;
+}
+
 function renderGrowth(current: number, past: number) {
   if (past === 0 && current === 0) return null;
   const pct = past === 0 ? 100 : ((current - past) / past) * 100;
@@ -835,11 +883,17 @@ export default function BarbeiroPage() {
     setLoadingBlock(false);
   }
 
-  async function deleteAppointment(id: string) {
-    if (!confirm("Remover bloqueio?")) return;
-    await supabase.from("appointments").delete().eq("id", id);
+  async function deleteAppointment(ids: string | string[]) {
+    if (!confirm("Remover este bloqueio?")) return;
+
+    // Transforma em array se for um ID único
+    const idsToDelete = Array.isArray(ids) ? ids : [ids];
+
+    // Apaga todos os IDs que estiverem dentro dessa lista
+    await supabase.from("appointments").delete().in("id", idsToDelete);
     loadAppts();
   }
+
   async function deleteFullDayBlock(id: string) {
     if (!confirm("Remover bloqueio do dia inteiro?")) return;
     await supabase.from("blocked_dates").delete().eq("id", id);
@@ -1408,7 +1462,7 @@ export default function BarbeiroPage() {
                     Nenhum compromisso agendado.
                   </div>
                 ) : (
-                  today.map((a) => {
+                  groupAppointments(today).map((a) => {
                     const isBlock = a.service.startsWith("BLOQUEIO");
                     const isCanceled = a.status === "canceled";
                     const isNoShow = a.status === "no-show";
@@ -1428,8 +1482,12 @@ export default function BarbeiroPage() {
                           <div
                             className={`rounded-xl px-3 py-2 text-center min-w-[60px] ${isBlock ? "bg-red-500 text-white" : autoCompleted ? "bg-emerald-500/20 text-emerald-400" : "bg-amber-400 text-zinc-950"}`}
                           >
-                            <div className="text-lg font-black leading-none">
-                              {a.time}
+                            <div
+                              className={`text-lg font-black leading-none ${a.isGroupedBlock && a.time !== a.endTime ? "text-[11px]" : "text-lg"}`}
+                            >
+                              {a.isGroupedBlock && a.time !== a.endTime
+                                ? `${a.time} às ${a.endTime}`
+                                : a.time}
                             </div>
                           </div>
                           <div className="flex-1">
@@ -1499,7 +1557,11 @@ export default function BarbeiroPage() {
                           )}
                           {isBlock && !isCanceled && !isNoShow && (
                             <button
-                              onClick={() => deleteAppointment(a.id)}
+                              onClick={() =>
+                                deleteAppointment(
+                                  a.isGroupedBlock ? a.blockIds : a.id,
+                                )
+                              }
                               className="text-zinc-600 hover:text-red-400 p-2"
                             >
                               <Trash2 size={18} />
@@ -1548,7 +1610,7 @@ export default function BarbeiroPage() {
                       </div>
                     );
                   }
-                  return upcomingAppointments.map((a) => {
+                  return groupAppointments(upcomingAppointments).map((a) => {
                     const isBlock = a.service.startsWith("BLOQUEIO");
                     return (
                       <div
@@ -1568,8 +1630,12 @@ export default function BarbeiroPage() {
                                 .slice(0, 2)
                                 .join("/")}
                             </div>
-                            <div className="text-zinc-500 text-[10px] font-bold mt-1">
-                              {a.time}
+                            <div
+                              className={`text-sm font-black leading-none ${a.isGroupedBlock && a.time !== a.endTime ? "text-[11px]" : "text-lg"}`}
+                            >
+                              {a.isGroupedBlock && a.time !== a.endTime
+                                ? `${a.time} às ${a.endTime}`
+                                : a.time}
                             </div>
                           </div>
                           <div className="flex-1">
@@ -1604,7 +1670,11 @@ export default function BarbeiroPage() {
                           )}
                           {isBlock && (
                             <button
-                              onClick={() => deleteAppointment(a.id)}
+                              onClick={() =>
+                                deleteAppointment(
+                                  a.isGroupedBlock ? a.blockIds : a.id,
+                                )
+                              }
                               className="text-zinc-600 hover:text-red-400 p-2"
                             >
                               <Trash2 size={18} />
@@ -1664,11 +1734,26 @@ export default function BarbeiroPage() {
                         <button
                           key={h}
                           onClick={() => {
-                            if (isSelected)
-                              setSelectedTimes(
-                                selectedTimes.filter((time) => time !== h),
+                            if (
+                              selectedTimes.length === 0 ||
+                              selectedTimes.length > 1
+                            ) {
+                              // Primeiro clique: Inicia a seleção do zero
+                              setSelectedTimes([h]);
+                            } else if (selectedTimes.length === 1) {
+                              // Segundo clique: Pega o início e o fim, e preenche tudo no meio
+                              const startIdx = HOURS.indexOf(selectedTimes[0]);
+                              const endIdx = HOURS.indexOf(h);
+                              const minIdx = Math.min(startIdx, endIdx);
+                              const maxIdx = Math.max(startIdx, endIdx);
+
+                              // Fatiamos o array original do menor até o maior + 1
+                              const newSelection = HOURS.slice(
+                                minIdx,
+                                maxIdx + 1,
                               );
-                            else setSelectedTimes([...selectedTimes, h]);
+                              setSelectedTimes(newSelection);
+                            }
                           }}
                           className={`py-2 rounded-lg text-[10px] font-bold border transition-all ${isSelected ? "bg-amber-400 border-amber-400 text-zinc-950" : "bg-zinc-800 border-zinc-700 text-zinc-400 hover:border-zinc-500"}`}
                         >
