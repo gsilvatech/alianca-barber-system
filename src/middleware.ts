@@ -32,37 +32,36 @@ export async function middleware(request: NextRequest) {
     },
   );
 
+  // ... (mantenha o início do seu código igual)
   const { data } = await supabase.auth.getUser();
   const user = data?.user || null;
   const path = request.nextUrl.pathname;
 
-  // ADICIONADO: As rotas de senha agora são públicas
+  // 1. ROTAS TOTALMENTE PÚBLICAS (Qualquer um acessa, com ou sem login)
   const publicRoutes = [
     "/login",
     "/cadastro",
     "/esqueci-senha",
     "/atualizar-senha",
+    "/auth/callback", // 👈 ADICIONADO AQUI
   ];
 
-  // 1. Redirecionamento para deslogados
+  // Se NÃO estiver logado e NÃO for rota pública, chuta pro login
   if (!user && !publicRoutes.includes(path)) {
     return NextResponse.redirect(new URL("/login", request.url));
   }
 
+  // 2. LÓGICA PARA USUÁRIOS LOGADOS
   if (user) {
     const role = user.user_metadata?.role;
-
-    // Verificação flexível (Aceita 'barber' ou 'barbers')
     const isBarber = role === "barbers" || role === "barber";
 
-    // LOG DE DEBUG
-    console.log(
-      `[DEBUG @gsilvatech] User: ${user.email} | Role: ${role} | Path: ${path}`,
-    );
+    // ROTAS PROIBIDAS PARA QUEM JÁ ESTÁ LOGADO
+    // Repare que tiramos o "/atualizar-senha" daqui, porque ele PRECISA estar
+    // logado (sessão temporária) para conseguir trocar a senha!
+    const authRoutesToBlock = ["/login", "/cadastro", "/esqueci-senha"];
 
-    // Redirecionamento de rotas públicas (Login/Cadastro/Senha)
-    // Se o usuário já estiver logado, não tem por que estar nessas páginas
-    if (publicRoutes.includes(path)) {
+    if (authRoutesToBlock.includes(path)) {
       const target = isBarber ? "/barbeiro" : "/cliente";
       return NextResponse.redirect(new URL(target, request.url));
     }
@@ -80,6 +79,7 @@ export async function middleware(request: NextRequest) {
 
   return response;
 }
+// ... (mantenha o export config igual)
 
 export const config = {
   matcher: [

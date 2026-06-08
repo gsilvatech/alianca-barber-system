@@ -18,7 +18,7 @@ export default function EsqueciSenhaPage() {
 
     // Dispara o e-mail de recuperação e redireciona para a tela de criar nova senha
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${window.location.origin}/atualizar-senha`,
+      redirectTo: `${window.location.origin}/auth/callback?next=/atualizar-senha`,
     });
 
     if (error) {
