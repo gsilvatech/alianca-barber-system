@@ -32,10 +32,11 @@ export async function middleware(request: NextRequest) {
     },
   );
 
-  // ... (mantenha o início do seu código igual)
   const { data } = await supabase.auth.getUser();
   const user = data?.user || null;
   const path = request.nextUrl.pathname;
+
+  console.log(`[MIDDLEWARE] Acessando: ${path} | User logado: ${!!user}`);
 
   // 1. ROTAS TOTALMENTE PÚBLICAS (Qualquer um acessa, com ou sem login)
   const publicRoutes = [
@@ -43,7 +44,7 @@ export async function middleware(request: NextRequest) {
     "/cadastro",
     "/esqueci-senha",
     "/atualizar-senha",
-    "/auth/callback", // 👈 ADICIONADO AQUI
+    "/auth/callback",
   ];
 
   // Se NÃO estiver logado e NÃO for rota pública, chuta pro login
@@ -57,8 +58,6 @@ export async function middleware(request: NextRequest) {
     const isBarber = role === "barbers" || role === "barber";
 
     // ROTAS PROIBIDAS PARA QUEM JÁ ESTÁ LOGADO
-    // Repare que tiramos o "/atualizar-senha" daqui, porque ele PRECISA estar
-    // logado (sessão temporária) para conseguir trocar a senha!
     const authRoutesToBlock = ["/login", "/cadastro", "/esqueci-senha"];
 
     if (authRoutesToBlock.includes(path)) {
@@ -79,7 +78,6 @@ export async function middleware(request: NextRequest) {
 
   return response;
 }
-// ... (mantenha o export config igual)
 
 export const config = {
   matcher: [
