@@ -94,6 +94,14 @@ export default function AdminPage() {
   const [searchUser, setSearchUser] = useState("");
   const [loading, setLoading] = useState(true);
 
+  // ESTADOS PARA RESET DE SENHA
+  const [showResetModal, setShowResetModal] = useState(false);
+  const [selectedUserForReset, setSelectedUserForReset] =
+    useState<UserProfile | null>(null);
+  const [resetLoading, setResetLoading] = useState(false);
+  const [resetResultLink, setResetResultLink] = useState("");
+  const [showPassMessage, setShowPassMessage] = useState(false);
+
   const [showModal, setShowModal] = useState(false);
   const [form, setForm] = useState({
     barberId: "",
@@ -324,6 +332,37 @@ export default function AdminPage() {
       alert("Erro ao conectar com a API.");
     } finally {
       setLoading(false);
+    }
+  }
+
+  // FUNÇÃO PARA DISPARAR RESET DE SENHA VIA API ROUTE (WHATSAPP OU TEMPORÁRIA)
+  async function handleResetAction(
+    type: "whatsapp_link" | "temporary_password",
+  ) {
+    if (!selectedUserForReset) return;
+    setResetLoading(true);
+    try {
+      const res = await fetch("/api/admin/reset-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId: selectedUserForReset.id,
+          actionType: type,
+        }),
+      });
+
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+
+      if (type === "whatsapp_link") {
+        setResetResultLink(data.link);
+      } else {
+        setShowPassMessage(true);
+      }
+    } catch (error: any) {
+      alert("Erro ao processar: " + error.message);
+    } finally {
+      setResetLoading(false);
     }
   }
 
@@ -857,7 +896,7 @@ export default function AdminPage() {
                             {label}
                           </span>
                         </td>
-                        <td className="px-4 md:px-6 py-3 md:py-4 text-right">
+                        <td className="px-4 md:px-6 py-3 md:py-4 text-right flex items-center justify-end gap-2">
                           {u.role !== "admin" && (
                             <select
                               value={u.role}
@@ -871,6 +910,18 @@ export default function AdminPage() {
                               <option value="admin">Promover a Admin</option>
                             </select>
                           )}
+                          {/* NOVO: BOTÃO DE RESET (Pode usar um ícone de Cadeado/Key aqui do Lucide se quiser) */}
+                          <button
+                            onClick={() => {
+                              setSelectedUserForReset(u);
+                              setResetResultLink("");
+                              setShowPassMessage(false);
+                              setShowResetModal(true);
+                            }}
+                            className="bg-amber-400/10 text-amber-400 border border-amber-400/20 hover:bg-amber-400/20 px-2 py-1 md:py-1.5 rounded-lg text-[10px] md:text-xs font-bold transition-colors"
+                          >
+                            Reset Senha
+                          </button>
                         </td>
                       </tr>
                     );
@@ -1031,6 +1082,83 @@ export default function AdminPage() {
                 {saving ? "Injetando..." : "Confirmar Agenda"}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+      {/* MODAL SUPORTE DE SENHA (ADMIN) */}
+      {showResetModal && selectedUserForReset && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 w-full max-w-sm flex flex-col gap-5 shadow-2xl">
+            <div>
+              <h3 className="font-bold text-lg md:text-xl text-white flex items-center gap-2">
+                <ShieldCheck className="text-amber-400" size={22} /> Suporte de
+                Acesso
+              </h3>
+              <p className="text-[10px] md:text-xs text-zinc-400 mt-1">
+                Ação para o cliente:{" "}
+                <span className="text-white font-bold">
+                  {selectedUserForReset.name}
+                </span>
+              </p>
+            </div>
+
+            {!resetResultLink && !showPassMessage ? (
+              <div className="flex flex-col gap-3">
+                <button
+                  onClick={() => handleResetAction("whatsapp_link")}
+                  disabled={resetLoading}
+                  className="w-full bg-zinc-800 border border-zinc-700 text-white font-bold py-3 md:py-3.5 rounded-xl text-xs md:text-sm hover:border-amber-400 transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+                >
+                  {resetLoading ? "Gerando..." : "💬 Gerar Link para WhatsApp"}
+                </button>
+                <button
+                  onClick={() => handleResetAction("temporary_password")}
+                  disabled={resetLoading}
+                  className="w-full bg-zinc-800 border border-zinc-700 text-amber-400 font-bold py-3 md:py-3.5 rounded-xl text-xs md:text-sm hover:border-amber-400 transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+                >
+                  {resetLoading
+                    ? "Processando..."
+                    : "🔑 Forçar Senha (Mudar@123)"}
+                </button>
+              </div>
+            ) : resetResultLink ? (
+              <div className="flex flex-col gap-3 text-center">
+                <p className="text-emerald-400 font-bold text-xs">
+                  Link gerado com sucesso!
+                </p>
+                <a
+                  href={`https://wa.me/${selectedUserForReset.phone.replace(/\D/g, "")}?text=${encodeURIComponent(`Olá ${selectedUserForReset.name.split(" ")[0]}! Segue o seu link de acesso rápido para atualizar a sua senha: ${resetResultLink}`)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full bg-emerald-500 text-zinc-950 font-black py-3 rounded-xl text-center text-xs uppercase tracking-wider hover:bg-emerald-400 transition-colors"
+                >
+                  Enviar via WhatsApp
+                </a>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-3 text-center">
+                <p className="text-emerald-400 font-bold text-xs">
+                  Senha alterada no banco!
+                </p>
+                <div className="bg-zinc-950 p-3 rounded-xl border border-zinc-800 font-mono font-black text-amber-400 text-lg tracking-widest">
+                  Mudar@123
+                </div>
+                <p className="text-[10px] text-zinc-500">
+                  Avise o cliente. Ele será obrigado a trocar a senha ao fazer o
+                  login.
+                </p>
+              </div>
+            )}
+
+            <button
+              onClick={() => {
+                setShowResetModal(false);
+                setSelectedUserForReset(null);
+              }}
+              className="text-zinc-500 hover:text-white text-xs font-bold pt-3 border-t border-zinc-800/60 mt-1"
+            >
+              Fechar Janela
+            </button>
           </div>
         </div>
       )}
