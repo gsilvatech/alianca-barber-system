@@ -16,6 +16,7 @@ import {
   AlertTriangle,
   Edit2,
   CreditCard,
+  Lock, // <-- Ícone novo adicionado
 } from "lucide-react";
 
 // --- HELPER DE DATA LOCAL (CORRIGE O FUSO HORÁRIO DO BRASIL) ---
@@ -73,6 +74,7 @@ export default function ClientePage() {
     name: string;
     birth_date?: string;
     phone?: string;
+    require_password_change?: boolean; // <-- Tipagem atualizada
   } | null>(null);
   const [barbers, setBarbers] = useState<Barber[]>([]);
   const [appointments, setAppointments] = useState<Appointment[]>([]);
@@ -120,7 +122,7 @@ export default function ClientePage() {
   function handleOpenMaps() {
     const endereco =
       "Aliança Barber Club, Rua 50, 65 - Vila Santa Cecília, Volta Redonda - RJ, 27261-040";
-    const urlUniversal = `https://www.google.com/maps/search/?api=1&query=$$${encodeURIComponent(endereco)}`;
+    const urlUniversal = `https://www.google.com/maps/search/?api=1&query=$$$${encodeURIComponent(endereco)}`;
     window.open(urlUniversal, "_blank");
   }
 
@@ -138,7 +140,6 @@ export default function ClientePage() {
   async function confirmCancel() {
     if (!cancelConfirm) return;
 
-    // Cancela o agendamento
     const { error } = await supabase
       .from("appointments")
       .update({ status: "canceled" })
@@ -147,7 +148,6 @@ export default function ClientePage() {
     if (!error) {
       setAppointments((prev) => prev.filter((a) => a.id !== cancelConfirm.id));
 
-      // ESTORNO AUTOMÁTICO DE CRÉDITO DO PLANO NO CANCELAMENTO
       if (cancelConfirm.client_plan_id) {
         const { data: pData } = await supabase
           .from("client_plans")
@@ -167,7 +167,6 @@ export default function ClientePage() {
             activePlan &&
             activePlan.id === cancelConfirm.client_plan_id
           ) {
-            // Devolve o número no Card Dourado imediatamente na tela
             setActivePlan((prev: any) => ({
               ...prev,
               cuts_used: pData.cuts_used - 1,
@@ -309,7 +308,7 @@ export default function ClientePage() {
     }
   }
 
-  // Carregamento Inicial Isolado (AGORA COM OS SERVIÇOS DO BANCO!)
+  // CARREGAMENTO INICIAL COM INTERCEPTAÇÃO DE SENHA PROVISÓRIA
   useEffect(() => {
     async function load() {
       const {
@@ -332,7 +331,8 @@ export default function ClientePage() {
       ] = await Promise.all([
         supabase
           .from("profiles")
-          .select("id, name, birth_date, phone")
+          // 1. INJEÇÃO AQUI: Adicionado o require_password_change na consulta
+          .select("id, name, birth_date, phone, require_password_change")
           .eq("id", user.id)
           .single(),
         supabase.from("barbers").select("id, display_name, whatsapp"),
@@ -358,7 +358,6 @@ export default function ClientePage() {
           .order("date", { ascending: false })
           .limit(10),
         supabase.from("services").select("*").order("name"),
-        // LÓGICA DE BLINDAGEM DE DUPLICIDADE (PGRST116 RESOLVIDO)
         supabase
           .from("client_plans")
           .select(
@@ -369,6 +368,12 @@ export default function ClientePage() {
           .order("created_at", { ascending: false })
           .limit(1),
       ]);
+
+      // 2. A ARMADILHA: Se ele está usando senha provisória, joga pra fora da home imediatamente
+      if (prof?.require_password_change) {
+        router.push("/atualizar-senha?forced=true");
+        return;
+      }
 
       setProfile(prof);
       setBarbers(barb || []);
@@ -563,14 +568,12 @@ export default function ClientePage() {
     } = await supabase.auth.getUser();
     if (!user) return;
 
-    // 1. Atualiza o perfil básico do cliente
     const { error } = await supabase
       .from("profiles")
       .update({ phone: editPhone, birth_date: editBirthDate || null })
       .eq("id", user.id);
 
     if (!error) {
-      // 2. DISPARA A MÁGICA DE FUSÃO E ESCUTA A RESPOSTA
       let foiFundido = false;
       if (editPhone) {
         const { data: mergeResult } = await supabase.rpc(
@@ -587,7 +590,6 @@ export default function ClientePage() {
       }));
       setIsEditingProfile(false);
 
-      // 3. O EFEITO UAU! 🌟
       if (foiFundido) {
         alert(
           "Uau! 🎉 Identificamos que você já é de casa. O seu Plano Ativo e o seu Histórico de Cortes foram sincronizados automaticamente com a sua nova conta!",
@@ -952,7 +954,7 @@ export default function ClientePage() {
             <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-5 flex flex-col gap-5 shadow-[0_10px_30px_rgba(0,0,0,0.3)]">
               {step === 1 && (
                 <div className="flex flex-col gap-3 animate-in fade-in duration-300">
-                  {/* TRAVA ANTI-PREJUÍZO: Só mostra o botão do plano se ainda houver cortes e se estiver no prazo */}
+                  {/* TRAVA ANTI-PREJUÍZO */}
                   {activePlan &&
                     (() => {
                       const sd = activePlan.start_date
@@ -1233,6 +1235,7 @@ export default function ClientePage() {
                   </span>
                 )}
               </div>
+
               {isEditingProfile && (
                 <div className="flex gap-3 mt-2 border-t border-zinc-800/60 pt-4 animate-in zoom-in-95 duration-200">
                   <button
@@ -1252,6 +1255,19 @@ export default function ClientePage() {
                     className="flex-1 py-3 rounded-xl bg-amber-400 hover:bg-amber-300 text-zinc-950 text-xs font-black uppercase tracking-wider disabled:opacity-50"
                   >
                     {loadingProfile ? "Salvando..." : "Salvar"}
+                  </button>
+                </div>
+              )}
+
+              {/* 3. NOVO BOTÃO DE ALTERAR SENHA AQUI */}
+              {!isEditingProfile && (
+                <div className="flex flex-col gap-1 border-t border-zinc-800/60 pt-4 mt-2">
+                  <button
+                    onClick={() => router.push("/atualizar-senha")}
+                    className="w-full py-3 rounded-xl bg-zinc-800 border border-zinc-700 hover:border-amber-400 text-white text-xs font-bold uppercase tracking-wider transition-all flex items-center justify-center gap-2"
+                  >
+                    <Lock size={16} className="text-amber-400" /> Alterar Minha
+                    Senha
                   </button>
                 </div>
               )}
