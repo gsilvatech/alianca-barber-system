@@ -3733,7 +3733,7 @@ export default function BarbeiroPage() {
       )}
       {/* --- 2. PAINEL LATERAL RETRÁTIL DO PERFIL (SÓCIO GOD-MODE) --- */}
       <div
-        className={`fixed inset-0 z-50 transition-opacity duration-300 pointer-events-none ${isProfileOpen ? "opacity-100 pointer-events-auto" : "opacity-0"}`}
+        className={`fixed inset-0 z-[100] transition-opacity duration-300 pointer-events-none ${isProfileOpen ? "opacity-100 pointer-events-auto" : "opacity-0"}`}
       >
         <div
           className="absolute inset-0 bg-black/70 backdrop-blur-sm"
