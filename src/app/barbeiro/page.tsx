@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import DailyWord from "@/components/DailyWord";
@@ -27,6 +27,12 @@ import {
   BarChart3,
   Scissors,
   CheckCircle2,
+  User,
+  Camera,
+  Wallet,
+  AtSign,
+  Info,
+  Loader2,
 } from "lucide-react";
 
 // --- HELPER DE DATA LOCAL (CORRIGE O FUSO HORÁRIO DO BRASIL) ---
@@ -298,6 +304,86 @@ export default function BarbeiroPage() {
 
   // NOVA LINHA: Estado para a busca de clientes
   const [clientSearch, setClientSearch] = useState("");
+  const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [formProfile, setFormProfile] = useState({
+    display_name: "",
+    instagram_handle: "",
+    bio: "",
+    pix_type: "CPF",
+    pix_key: "",
+    avatar_url: "",
+  });
+
+  // --- UPLOAD DE IMAGEM ---
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+
+  async function handleAvatarUpload(
+    event: React.ChangeEvent<HTMLInputElement>,
+  ) {
+    try {
+      setUploadingAvatar(true);
+      const file = event.target.files?.[0];
+      if (!file) return;
+
+      // Limita o tamanho para 2MB
+      if (file.size > 2 * 1024 * 1024) {
+        alert("A imagem é muito pesada. Escolha uma foto de até 2MB.");
+        setUploadingAvatar(false);
+        return;
+      }
+
+      // Cria um nome único para o arquivo
+      const fileExt = file.name.split(".").pop();
+      const fileName = `${barberId}_${Math.random()}.${fileExt}`;
+
+      // 1. Faz o upload da foto para o bucket "avatars" no Supabase
+      const { error: uploadError } = await supabase.storage
+        .from("avatars")
+        .upload(fileName, file);
+
+      if (uploadError) throw uploadError;
+
+      // 2. Pega a URL pública da foto que acabamos de subir
+      const {
+        data: { publicUrl },
+      } = supabase.storage.from("avatars").getPublicUrl(fileName);
+
+      // 3. Atualiza a foto na tela (O usuário ainda precisa clicar em Salvar Perfil)
+      setFormProfile({ ...formProfile, avatar_url: publicUrl });
+    } catch (error: any) {
+      alert("Erro ao enviar a imagem: " + error.message);
+    } finally {
+      setUploadingAvatar(false);
+    }
+  }
+
+  // --- FUNÇÃO PARA SALVAR O PERFIL ---
+  async function handleSaveProfile() {
+    if (!barberId) return;
+    setSavingProfile(true);
+
+    const { error } = await supabase
+      .from("barbers")
+      .update({
+        display_name: formProfile.display_name,
+        instagram_handle: formProfile.instagram_handle.replace("@", ""),
+        bio: formProfile.bio,
+        pix_type: formProfile.pix_type,
+        pix_key: formProfile.pix_key,
+        avatar_url: formProfile.avatar_url,
+      })
+      .eq("id", barberId);
+
+    if (error) {
+      alert("Erro ao atualizar perfil: " + error.message);
+    } else {
+      alert("Seu perfil sócio foi atualizado com sucesso! 💎");
+      setIsProfileOpen(false);
+    }
+    setSavingProfile(false);
+  }
 
   // NOVA FUNÇÃO: Excluir Cliente (Forçado via RPC)
   async function handleDeleteClient(clientId: string, clientName: string) {
@@ -699,10 +785,21 @@ export default function BarbeiroPage() {
       setProfile({ ...prof, id: user.id });
       const { data: barber } = await supabase
         .from("barbers")
-        .select("id")
+        .select("*")
         .eq("user_id", user.id)
         .single();
-      if (barber) setBarberId(barber.id);
+
+      if (barber) {
+        setBarberId(barber.id);
+        setFormProfile({
+          display_name: barber.display_name || "",
+          instagram_handle: barber.instagram_handle || "",
+          bio: barber.bio || "",
+          pix_type: barber.pix_type || "CPF",
+          pix_key: barber.pix_key || "",
+          avatar_url: barber.avatar_url || "",
+        });
+      }
     }
     loadInitial();
   }, []);
@@ -1427,14 +1524,30 @@ export default function BarbeiroPage() {
 
   return (
     <main className="min-h-screen bg-zinc-950 text-white pb-28">
+      {/* 1. HEADER REFACTORADO (SIMÉTRICO E CENTRALIZADO) */}
       <header className="bg-zinc-900/50 backdrop-blur-md border-b border-zinc-800 px-4 py-4 sticky top-0 z-40">
-        <div className="max-w-3xl mx-auto flex items-center justify-between">
-          <img src="/logo.png" alt="Logo" className="h-12 w-auto" />
+        <div className="max-w-3xl mx-auto flex items-center justify-between relative h-12">
+          <button
+            onClick={() => setIsProfileOpen(true)}
+            className="flex items-center gap-2 text-zinc-500 hover:text-amber-400 font-bold text-xs uppercase transition-colors p-2 rounded-xl border border-transparent hover:border-zinc-800"
+          >
+            <User size={18} strokeWidth={2.5} />
+            <span className="hidden sm:inline">Perfil</span>
+          </button>
+
+          <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
+            <img
+              src="/logo.png"
+              alt="Aliança Barber Club"
+              className="h-11 w-auto mix-blend-lighten"
+            />
+          </div>
+
           <button
             onClick={handleLogout}
-            className="p-2 text-zinc-500 hover:text-red-400 transition-colors"
+            className="p-2 text-zinc-500 hover:text-red-400 transition-colors rounded-xl border border-transparent hover:border-zinc-800"
           >
-            <LogOut size={20} />
+            <LogOut size={18} />
           </button>
         </div>
       </header>
@@ -3618,7 +3731,192 @@ export default function BarbeiroPage() {
           </div>
         </div>
       )}
+      {/* --- 2. PAINEL LATERAL RETRÁTIL DO PERFIL (SÓCIO GOD-MODE) --- */}
+      <div
+        className={`fixed inset-0 z-50 transition-opacity duration-300 pointer-events-none ${isProfileOpen ? "opacity-100 pointer-events-auto" : "opacity-0"}`}
+      >
+        <div
+          className="absolute inset-0 bg-black/70 backdrop-blur-sm"
+          onClick={() => setIsProfileOpen(false)}
+        />
 
+        <div
+          className={`absolute top-0 left-0 h-full w-full max-w-md bg-zinc-950 border-r border-zinc-800 p-6 flex flex-col gap-6 overflow-y-auto shadow-2xl transition-transform duration-300 ease-in-out custom-scrollbar ${isProfileOpen ? "translate-x-0" : "-translate-x-full"}`}
+        >
+          <div className="flex items-center justify-between border-b border-zinc-900 pb-4">
+            <h3 className="text-lg font-black italic text-white tracking-tight flex items-center gap-2">
+              <User size={20} className="text-amber-400" /> PERFIL PROFISSIONAL
+            </h3>
+            <button
+              onClick={() => setIsProfileOpen(false)}
+              className="text-zinc-500 hover:text-white bg-zinc-900 border border-zinc-800 p-1.5 rounded-xl transition-colors text-xs font-bold"
+            >
+              Fechar
+            </button>
+          </div>
+
+          {/* AVATAR */}
+          <div className="flex flex-col items-center gap-3 bg-zinc-900/40 p-4 border border-zinc-900 rounded-2xl">
+            <div className="relative group">
+              <div className="w-24 h-24 rounded-full border border-amber-400/30 overflow-hidden bg-zinc-900 flex items-center justify-center">
+                {uploadingAvatar ? (
+                  <Loader2 className="animate-spin text-amber-400" size={24} />
+                ) : formProfile.avatar_url ? (
+                  <img
+                    src={formProfile.avatar_url}
+                    className="w-full h-full object-cover"
+                    alt="Avatar"
+                  />
+                ) : (
+                  <User size={36} className="text-zinc-700" />
+                )}
+              </div>
+
+              {/* Input invisível que o botão da câmera vai acionar */}
+              <input
+                type="file"
+                accept="image/*"
+                className="hidden"
+                ref={fileInputRef}
+                onChange={handleAvatarUpload}
+              />
+
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploadingAvatar}
+                className="absolute bottom-0 right-0 bg-amber-400 text-zinc-950 p-2 rounded-full hover:scale-105 transition-transform shadow disabled:opacity-50"
+              >
+                <Camera size={14} strokeWidth={2.5} />
+              </button>
+            </div>
+            <span className="text-[10px] font-black uppercase tracking-widest text-zinc-500">
+              Foto Oficial
+            </span>
+          </div>
+
+          <div className="flex flex-col gap-4 bg-zinc-900 border border-zinc-800 rounded-2xl p-4">
+            <h4 className="text-xs font-black text-amber-400 uppercase tracking-wider flex items-center gap-1.5 mb-1">
+              Dados da Cadeira
+            </h4>
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] font-bold text-zinc-500 uppercase ml-1">
+                Apelido / Nome Comercial
+              </label>
+              <input
+                type="text"
+                value={formProfile.display_name}
+                onChange={(e) =>
+                  setFormProfile({
+                    ...formProfile,
+                    display_name: e.target.value,
+                  })
+                }
+                className="bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-2 text-sm text-white focus:border-amber-400 outline-none transition-colors"
+                placeholder="Ex: Acerola"
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] font-bold text-zinc-500 uppercase ml-1">
+                Instagram Profissional
+              </label>
+              <div className="relative">
+                <AtSign
+                  className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500"
+                  size={14}
+                />
+                <input
+                  type="text"
+                  value={formProfile.instagram_handle}
+                  onChange={(e) =>
+                    setFormProfile({
+                      ...formProfile,
+                      instagram_handle: e.target.value,
+                    })
+                  }
+                  className="bg-zinc-800 border border-zinc-700 rounded-xl pl-9 pr-3 py-2 text-sm text-white w-full focus:border-amber-400 outline-none transition-colors"
+                  placeholder="usuario.barber"
+                />
+              </div>
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] font-bold text-zinc-500 uppercase ml-1">
+                Mini Bio / Especialidade
+              </label>
+              <textarea
+                rows={2}
+                value={formProfile.bio}
+                onChange={(e) =>
+                  setFormProfile({ ...formProfile, bio: e.target.value })
+                }
+                className="bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-2 text-sm text-white focus:border-amber-400 outline-none transition-colors resize-none"
+                placeholder="Ex: Especialista em Degradê..."
+              />
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-4 bg-zinc-900 border border-zinc-800 rounded-2xl p-4">
+            <h4 className="text-xs font-black text-emerald-400 uppercase tracking-wider flex items-center gap-1.5 mb-1">
+              <Wallet size={14} /> Recebimentos Individuais
+            </h4>
+            <div className="bg-zinc-950 border border-zinc-800/60 p-3 rounded-xl flex gap-2.5">
+              <Info className="text-amber-400 shrink-0 mt-0.5" size={15} />
+              <p className="text-[9px] text-zinc-400 leading-relaxed font-medium">
+                Esses dados serão utilizados no ecossistema do Aliança Bot e
+                para divisões automatizadas.
+              </p>
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              <div className="col-span-1 flex flex-col gap-1">
+                <label className="text-[10px] font-bold text-zinc-500 uppercase ml-1">
+                  Tipo
+                </label>
+                <select
+                  value={formProfile.pix_type}
+                  onChange={(e) =>
+                    setFormProfile({ ...formProfile, pix_type: e.target.value })
+                  }
+                  className="bg-zinc-800 border border-zinc-700 rounded-xl px-2 py-2 text-xs text-white focus:border-emerald-400 outline-none h-[38px]"
+                >
+                  <option value="CPF">CPF</option>
+                  <option value="CNPJ">CNPJ</option>
+                  <option value="EMAIL">E-mail</option>
+                  <option value="PHONE">Celular</option>
+                  <option value="RANDOM">Aleatória</option>
+                </select>
+              </div>
+              <div className="col-span-2 flex flex-col gap-1">
+                <label className="text-[10px] font-bold text-zinc-500 uppercase ml-1">
+                  Chave Pix Corrente
+                </label>
+                <input
+                  type="text"
+                  value={formProfile.pix_key}
+                  onChange={(e) =>
+                    setFormProfile({ ...formProfile, pix_key: e.target.value })
+                  }
+                  className="bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-2 text-sm text-white focus:border-emerald-400 outline-none transition-colors h-[38px]"
+                  placeholder="Chave oficial..."
+                />
+              </div>
+            </div>
+          </div>
+
+          <button
+            onClick={handleSaveProfile}
+            disabled={savingProfile}
+            className="w-full bg-amber-400 hover:bg-amber-300 text-zinc-950 font-black py-3.5 rounded-2xl flex items-center justify-center gap-2 uppercase tracking-widest text-xs shadow-xl shadow-amber-400/5 mt-auto transition-all"
+          >
+            {savingProfile ? (
+              <Loader2 className="animate-spin" size={16} />
+            ) : (
+              <>
+                <CheckCircle2 size={16} strokeWidth={2.5} /> Atualizar Meu
+                Perfil
+              </>
+            )}
+          </button>
+        </div>
+      </div>
       <nav className="fixed bottom-0 left-0 right-0 bg-zinc-900/80 backdrop-blur-xl border-t border-zinc-800/50 px-6 pt-3 pb-8 flex justify-between items-center z-50">
         <NavButton icon={Home} label="Início" tabId="home" />
         <NavButton icon={Calendar} label="Agenda" tabId="agenda" />
