@@ -33,6 +33,7 @@ import {
   AtSign,
   Info,
   Loader2,
+  Lock,
 } from "lucide-react";
 
 // --- HELPER DE DATA LOCAL (CORRIGE O FUSO HORÁRIO DO BRASIL) ---
@@ -3899,6 +3900,19 @@ export default function BarbeiroPage() {
                 />
               </div>
             </div>
+          </div>
+
+          {/* SEÇÃO SEGURANÇA: ALTERAR SENHA */}
+          <div className="flex flex-col gap-1 border-t border-zinc-800/60 pt-4 mt-2">
+            <button
+              onClick={() => {
+                setIsProfileOpen(false); // Fecha o painel lateral primeiro
+                router.push("/atualizar-senha"); // Redireciona para a tela de senha
+              }}
+              className="w-full py-3.5 rounded-2xl bg-zinc-900 border border-zinc-800 hover:border-amber-400 text-white text-xs font-bold uppercase tracking-widest transition-all flex items-center justify-center gap-2"
+            >
+              <Lock size={16} className="text-amber-400" /> Alterar Minha Senha
+            </button>
           </div>
 
           <button
