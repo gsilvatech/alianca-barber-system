@@ -59,6 +59,30 @@ const isPast = (dateStr: string, timeStr: string) => {
   return now > apptDate;
 };
 
+// --- HELPER DE DURAÇÃO SEGURA ---
+const getServiceDuration = (
+  serviceString: string,
+  servicesList: any[],
+): number => {
+  if (!serviceString) return 30;
+
+  let cleanName = serviceString;
+
+  // Limpa as tags que o sistema adiciona automaticamente
+  if (cleanName.startsWith("MANUAL:")) {
+    cleanName = cleanName.split(" - ")[1] || cleanName;
+  }
+  if (cleanName.startsWith("PLANO: ")) {
+    cleanName = cleanName.replace("PLANO: ", "");
+  }
+
+  // Procura o serviço ignorando espaços extras
+  const svc = servicesList.find((s) => s.name.trim() === cleanName.trim());
+
+  // Retorna a duração real do banco, ou 30 min como segurança
+  return svc?.duration || 30;
+};
+
 const getNextWeekDate = (dateStr: string, weeksToAdd: number) => {
   const [y, m, d] = dateStr.split("-").map(Number);
   const date = new Date(y, m - 1, d);
@@ -837,36 +861,37 @@ export default function BarbeiroPage() {
         .eq("status", "confirmed");
       const existingAppts = data || [];
       const blocked: string[] = [];
-      let actualServiceName = editingAppointment!.service;
-      if (actualServiceName.startsWith("MANUAL:"))
-        actualServiceName = actualServiceName.split(" - ")[1] || "Corte";
-      const selectedSvc = servicesList.find(
-        (s) => s.name === actualServiceName,
+      // Usa o helper para o serviço atual
+      const duration = getServiceDuration(
+        editingAppointment!.service,
+        servicesList,
       );
-      const duration = selectedSvc?.duration || 30;
+
       HOURS.forEach((slot) => {
         const slotStart = timeToMinutes(slot);
         const slotEnd = slotStart + duration;
+
         if (
           editDate === editingAppointment!.date &&
           slot === editingAppointment!.time
         )
           return;
+
         const hasConflict = existingAppts.some((appt: any) => {
           if (
             appt.time === editingAppointment!.time &&
             editDate === editingAppointment!.date
           )
             return false;
+
           const apptStart = timeToMinutes(appt.time);
-          let apptSvcName = appt.service;
-          if (apptSvcName.startsWith("MANUAL:"))
-            apptSvcName = apptSvcName.split(" - ")[1] || "Corte";
-          const apptSvc = servicesList.find((s) => s.name === apptSvcName);
-          const apptDuration = apptSvc?.duration || 30;
+          // Usa o helper para checar a concorrência
+          const apptDuration = getServiceDuration(appt.service, servicesList);
+
           const apptEnd = apptStart + apptDuration;
           return slotStart < apptEnd && slotEnd > apptStart;
         });
+
         if (hasConflict) blocked.push(slot);
       });
       setEditTakenSlots(blocked);
@@ -893,21 +918,23 @@ export default function BarbeiroPage() {
         .eq("status", "confirmed");
       const existingAppts = data || [];
       const blocked: string[] = [];
-      const selectedSvc = servicesList.find((s) => s.name === manualService);
-      const duration = selectedSvc?.duration || 30;
+      // Usa o helper para o serviço atual
+      const duration = getServiceDuration(manualService, servicesList);
+
       HOURS.forEach((slot) => {
         const slotStart = timeToMinutes(slot);
         const slotEnd = slotStart + duration;
+
         const hasConflict = existingAppts.some((appt: any) => {
           const apptStart = timeToMinutes(appt.time);
-          let apptSvcName = appt.service;
-          if (apptSvcName.startsWith("MANUAL:"))
-            apptSvcName = apptSvcName.split(" - ")[1] || "Corte";
-          const apptSvc = servicesList.find((s) => s.name === apptSvcName);
-          const apptDuration = apptSvc?.duration || 30;
+
+          // Usa o helper para checar a concorrência
+          const apptDuration = getServiceDuration(appt.service, servicesList);
+
           const apptEnd = apptStart + apptDuration;
           return slotStart < apptEnd && slotEnd > apptStart;
         });
+
         if (hasConflict) blocked.push(slot);
       });
       setManualTakenSlots(blocked);

@@ -42,6 +42,30 @@ const isPast = (dateStr: string, timeStr: string) => {
   return now > apptDate;
 };
 
+// --- HELPER DE DURAÇÃO SEGURA ---
+const getServiceDuration = (
+  serviceString: string,
+  servicesList: any[],
+): number => {
+  if (!serviceString) return 30;
+
+  let cleanName = serviceString;
+
+  // Limpa as tags que o sistema adiciona automaticamente
+  if (cleanName.startsWith("MANUAL:")) {
+    cleanName = cleanName.split(" - ")[1] || cleanName;
+  }
+  if (cleanName.startsWith("PLANO: ")) {
+    cleanName = cleanName.replace("PLANO: ", "");
+  }
+
+  // Procura o serviço ignorando espaços extras
+  const svc = servicesList.find((s) => s.name.trim() === cleanName.trim());
+
+  // Retorna a duração real do banco, ou 30 min como segurança
+  return svc?.duration || 30;
+};
+
 type Barber = { id: string; display_name: string; whatsapp: string };
 type Appointment = {
   id: string;
@@ -472,11 +496,10 @@ export default function ClientePage() {
 
         const hasConflict = existingAppts.some((appt: any) => {
           const apptStart = timeToMinutes(appt.time);
-          let apptSvcName = appt.service;
-          if (apptSvcName.startsWith("MANUAL:"))
-            apptSvcName = apptSvcName.split(" - ")[1] || "Corte";
-          const apptSvc = servicesList.find((s) => s.name === apptSvcName);
-          const apptDuration = apptSvc?.duration || 60;
+
+          // Chama a nossa nova função centralizada
+          const apptDuration = getServiceDuration(appt.service, servicesList);
+
           const apptEnd = apptStart + apptDuration;
           return slotStart < apptEnd && slotEnd > apptStart;
         });
@@ -543,11 +566,10 @@ export default function ClientePage() {
           )
             return false;
           const apptStart = timeToMinutes(appt.time);
-          let apptSvcName = appt.service;
-          if (apptSvcName.startsWith("MANUAL:"))
-            apptSvcName = apptSvcName.split(" - ")[1] || "Corte";
-          const apptSvc = servicesList.find((s) => s.name === apptSvcName);
-          const apptDuration = apptSvc?.duration || 60;
+
+          // Chama a nossa nova função centralizada
+          const apptDuration = getServiceDuration(appt.service, servicesList);
+
           const apptEnd = apptStart + apptDuration;
           return slotStart < apptEnd && slotEnd > apptStart;
         });
