@@ -338,6 +338,7 @@ export default function BarbeiroPage() {
     pix_type: "CPF",
     pix_key: "",
     avatar_url: "",
+    whatsapp: "",
   });
 
   // --- UPLOAD DE IMAGEM ---
@@ -398,6 +399,7 @@ export default function BarbeiroPage() {
         pix_type: formProfile.pix_type,
         pix_key: formProfile.pix_key,
         avatar_url: formProfile.avatar_url,
+        whatsapp: formProfile.whatsapp.replace(/\D/g, ""),
       })
       .eq("id", barberId);
 
@@ -823,6 +825,7 @@ export default function BarbeiroPage() {
           pix_type: barber.pix_type || "CPF",
           pix_key: barber.pix_key || "",
           avatar_url: barber.avatar_url || "",
+          whatsapp: barber.whatsapp || "",
         });
       }
     }
@@ -2653,6 +2656,26 @@ export default function BarbeiroPage() {
                     </button>
                   )}
                 </div>
+                <div className="grid grid-cols-2 gap-3 mb-2 animate-in slide-in-from-top-4 duration-300">
+                  <div className="bg-zinc-900 border border-zinc-800 p-4 rounded-2xl flex flex-col gap-1 shadow-md">
+                    <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider">
+                      Total Clientes (Rede)
+                    </span>
+                    <span className="text-2xl font-black text-white">
+                      {crmClients.length}
+                    </span>
+                  </div>
+                  <div className="bg-zinc-900 border border-amber-500/30 p-4 rounded-2xl flex flex-col gap-1 shadow-[0_0_15px_rgba(251,191,36,0.05)]">
+                    <span className="text-[10px] text-amber-500 font-bold uppercase tracking-wider">
+                      Assinaturas (Suas)
+                    </span>
+                    <span className="text-2xl font-black text-amber-400">
+                      {clientPlans.filter((p) => p.status === "active").length}
+                    </span>
+                  </div>
+                </div>
+
+                {/* --- BOTÕES DE NAVEGAÇÃO DO CRM --- */}
                 <div className="flex gap-2 bg-zinc-900 p-1 rounded-xl">
                   <button
                     onClick={() => setCrmTab("assinaturas")}
@@ -3865,6 +3888,27 @@ export default function BarbeiroPage() {
                   placeholder="usuario.barber"
                 />
               </div>
+            </div>
+            <div className="flex flex-col gap-1 mt-2 border-t border-zinc-800/60 pt-3">
+              <label className="text-[10px] font-bold text-zinc-500 uppercase ml-1 flex items-center justify-between">
+                WhatsApp Comercial / Business
+              </label>
+              <input
+                type="text"
+                value={formProfile.whatsapp}
+                onChange={(e) =>
+                  setFormProfile({
+                    ...formProfile,
+                    whatsapp: e.target.value,
+                  })
+                }
+                className="bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-2 text-sm text-white focus:border-amber-400 outline-none transition-colors"
+                placeholder="(24) 99999-9999"
+              />
+              <p className="text-[9px] text-zinc-500 ml-1 leading-tight mt-0.5">
+                O cliente será redirecionado para este número ao agendar com
+                você.
+              </p>
             </div>
             <div className="flex flex-col gap-1">
               <label className="text-[10px] font-bold text-zinc-500 uppercase ml-1">
