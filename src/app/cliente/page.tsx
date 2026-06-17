@@ -16,10 +16,10 @@ import {
   AlertTriangle,
   Edit2,
   CreditCard,
-  Lock, // <-- Ícone novo adicionado
+  Lock, 
 } from "lucide-react";
 
-// --- HELPER DE DATA LOCAL (CORRIGE O FUSO HORÁRIO DO BRASIL) ---
+// funções de data e hora
 const getLocalDateStr = (d = new Date()) => {
   const year = d.getFullYear();
   const month = String(d.getMonth() + 1).padStart(2, "0");
@@ -42,7 +42,7 @@ const isPast = (dateStr: string, timeStr: string) => {
   return now > apptDate;
 };
 
-// --- HELPER DE DURAÇÃO SEGURA ---
+// duração do serviço considerando as variações de nome e a tag de plano
 const getServiceDuration = (
   serviceString: string,
   servicesList: any[],
@@ -98,7 +98,7 @@ export default function ClientePage() {
     name: string;
     birth_date?: string;
     phone?: string;
-    require_password_change?: boolean; // <-- Tipagem atualizada
+    require_password_change?: boolean; 
   } | null>(null);
   const [barbers, setBarbers] = useState<Barber[]>([]);
   const [appointments, setAppointments] = useState<Appointment[]>([]);
@@ -355,7 +355,6 @@ export default function ClientePage() {
       ] = await Promise.all([
         supabase
           .from("profiles")
-          // 1. INJEÇÃO AQUI: Adicionado o require_password_change na consulta
           .select("id, name, birth_date, phone, require_password_change")
           .eq("id", user.id)
           .single(),
@@ -393,7 +392,6 @@ export default function ClientePage() {
           .limit(1),
       ]);
 
-      // 2. A ARMADILHA: Se ele está usando senha provisória, joga pra fora da home imediatamente
       if (prof?.require_password_change) {
         router.push("/atualizar-senha?forced=true");
         return;
@@ -497,7 +495,6 @@ export default function ClientePage() {
         const hasConflict = existingAppts.some((appt: any) => {
           const apptStart = timeToMinutes(appt.time);
 
-          // Chama a nossa nova função centralizada
           const apptDuration = getServiceDuration(appt.service, servicesList);
 
           const apptEnd = apptStart + apptDuration;
@@ -567,7 +564,6 @@ export default function ClientePage() {
             return false;
           const apptStart = timeToMinutes(appt.time);
 
-          // Chama a nossa nova função centralizada
           const apptDuration = getServiceDuration(appt.service, servicesList);
 
           const apptEnd = apptStart + apptDuration;

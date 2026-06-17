@@ -11,7 +11,7 @@ export default function CadastroPage() {
     name: "",
     email: "",
     phone: "",
-    birthDate: "", // Novo campo para o CRM
+    birthDate: "",
     password: "",
   });
   const [error, setError] = useState("");
@@ -26,7 +26,7 @@ export default function CadastroPage() {
     setLoading(true);
     setError("");
 
-    // 1. Cria o usuário no Auth do Supabase
+    // Cria o usuário no Auth do Supabase
     const { data: authData, error: authError } = await supabase.auth.signUp({
       email: form.email,
       password: form.password,
@@ -60,7 +60,7 @@ export default function CadastroPage() {
       if (profileError) {
         console.error("Erro ao salvar perfil público:", profileError.message);
       } else if (form.phone) {
-        // --- 3. A MÁGICA DA FUSÃO NO MOMENTO DO CADASTRO ---
+        // 3. Se o telefone foi preenchido, tenta fundir com perfil fantasma (se existir)
         const { data: foiFundido } = await supabase.rpc("merge_ghost_profile", {
           user_phone: form.phone,
         });

@@ -326,7 +326,6 @@ export default function AdminPage() {
     return svc ? svc.price : 0;
   }
 
-  // --- MATEMÁTICA PESADA ESPELHADA (IGUAL AO BARBEIRO) ---
   const activePlans = clientPlans.filter((p) => p.status === "active");
   const mrr = activePlans.reduce((sum, p) => sum + Number(p.price_paid), 0);
 
@@ -362,7 +361,6 @@ export default function AdminPage() {
       (a.status === "confirmed" && isPast(a.date, a.time)),
   );
 
-  // --- O EXTERMINADOR DE FANTASMAS (Para mostrar apenas os clientes reais) ---
   const validProjectedAppts = projectedAppts.filter(
     (a) => !a.service.startsWith("BLOQUEIO"),
   );

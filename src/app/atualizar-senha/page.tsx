@@ -3,7 +3,6 @@ import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
-// 1. Transformamos o componente principal em um sub-componente
 function AtualizarSenhaContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -116,7 +115,6 @@ function AtualizarSenhaContent() {
   );
 }
 
-// 2. Exportamos a página principal com o Suspense Boundary por fora
 export default function AtualizarSenhaPage() {
   return (
     <main className="min-h-screen bg-zinc-950 flex flex-col items-center justify-center px-4 py-4 font-sans">
