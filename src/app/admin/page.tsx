@@ -21,6 +21,13 @@ import {
   LineChart,
 } from "lucide-react";
 
+const getLocalDateStr = (d = new Date()) => {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
 const timeToMinutes = (timeStr: string): number => {
   const [hours, minutes] = timeStr.split(":").map(Number);
   return hours * 60 + minutes;
@@ -29,10 +36,27 @@ const timeToMinutes = (timeStr: string): number => {
 const isPast = (dateStr: string, timeStr: string) => {
   if (!dateStr || !timeStr) return false;
   const now = new Date();
-  const [year, month, day] = dateStr.split("-").map(Number);
+  const cleanDate = dateStr.split("T")[0];
+  const [year, month, day] = cleanDate.split("-").map(Number);
   const [hours, minutes] = timeStr.split(":").map(Number);
-  const apptDate = new Date(year, month - 1, day, hours, minutes);
+  const apptDate = new Date(year, month - 1, day, hours, minutes + 20);
   return now > apptDate;
+};
+
+const getServiceDuration = (
+  serviceString: string,
+  servicesList: any[],
+): number => {
+  if (!serviceString) return 30;
+  let cleanName = serviceString;
+  if (cleanName.startsWith("MANUAL:")) {
+    cleanName = cleanName.split(" - ")[1] || cleanName;
+  }
+  if (cleanName.startsWith("PLANO: ") || cleanName.startsWith("ADMIN: ")) {
+    cleanName = cleanName.replace("PLANO: ", "").replace("ADMIN: ", "");
+  }
+  const svc = servicesList.find((s) => s.name.trim() === cleanName.trim());
+  return svc?.duration || 30;
 };
 
 type Appointment = {
@@ -69,6 +93,12 @@ type ClientPlan = {
   status: string;
   barber_id: string;
   created_at: string;
+  start_date?: string;
+};
+type ProductSale = {
+  total_price: number;
+  created_at: string;
+  barber_id: string;
 };
 
 export default function AdminPage() {
@@ -85,6 +115,8 @@ export default function AdminPage() {
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [servicesList, setServicesList] = useState<BarberService[]>([]);
   const [clientPlans, setClientPlans] = useState<ClientPlan[]>([]);
+  const [productSales, setProductSales] = useState<ProductSale[]>([]);
+  const [blockedDates, setBlockedDates] = useState<any[]>([]);
 
   const [activeTab, setActiveTab] = useState<
     "overview" | "team" | "users" | "audit"
@@ -94,7 +126,6 @@ export default function AdminPage() {
   const [searchUser, setSearchUser] = useState("");
   const [loading, setLoading] = useState(true);
 
-  // ESTADOS PARA RESET DE SENHA
   const [showResetModal, setShowResetModal] = useState(false);
   const [selectedUserForReset, setSelectedUserForReset] =
     useState<UserProfile | null>(null);
@@ -110,15 +141,19 @@ export default function AdminPage() {
     time: "",
   });
   const [saving, setSaving] = useState(false);
+  const [admTakenSlots, setAdmTakenSlots] = useState<string[]>([]);
 
-  const todayStr = new Date().toISOString().split("T")[0];
-  const firstDayThisMonth = new Date(
-    new Date().getFullYear(),
-    new Date().getMonth(),
-    1,
-  )
-    .toISOString()
-    .split("T")[0];
+  const todayStr = getLocalDateStr(new Date());
+
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const currentMonthIdx = now.getMonth();
+  const firstDayThisMonth = getLocalDateStr(
+    new Date(currentYear, currentMonthIdx, 1),
+  );
+  const lastDayThisMonth = getLocalDateStr(
+    new Date(currentYear, currentMonthIdx + 1, 0),
+  );
 
   useEffect(() => {
     async function load() {
@@ -141,6 +176,8 @@ export default function AdminPage() {
         { data: svcs },
         { data: plans },
         { data: appts },
+        { data: blocks },
+        { data: sales },
       ] = await Promise.all([
         supabase.from("barbers").select("id, display_name, user_id"),
         supabase
@@ -150,15 +187,22 @@ export default function AdminPage() {
         supabase.from("services").select("*").order("name"),
         supabase
           .from("client_plans")
-          .select("id, plan_name, price_paid, status, barber_id, created_at"),
+          .select(
+            "id, plan_name, price_paid, status, barber_id, created_at, start_date",
+          ),
         supabase
           .from("appointments")
           .select(
             "id, service, date, time, status, price_applied, barber_id, created_at, profiles(name), barbers(display_name)",
           )
           .gte("date", firstDayThisMonth)
+          .lte("date", lastDayThisMonth)
           .order("date", { ascending: false })
           .order("time", { ascending: false }),
+        supabase.from("blocked_dates").select("*"),
+        supabase
+          .from("product_sales")
+          .select("total_price, created_at, barber_id"),
       ]);
 
       setBarbers(barb || []);
@@ -166,10 +210,66 @@ export default function AdminPage() {
       setServicesList(svcs || []);
       setClientPlans(plans || []);
       setAppointments((appts as any) || []);
+      setBlockedDates(blocks || []);
+      setProductSales(sales || []);
       setLoading(false);
     }
     load();
   }, []);
+
+  useEffect(() => {
+    if (
+      !form.barberId ||
+      !form.date ||
+      !form.service ||
+      servicesList.length === 0
+    ) {
+      setAdmTakenSlots([]);
+      return;
+    }
+
+    const isDayBlocked = blockedDates.some(
+      (b) => b.barber_id === form.barberId && b.date === form.date,
+    );
+
+    if (isDayBlocked) {
+      setAdmTakenSlots(HOURS);
+      return;
+    }
+
+    const existingAppts = appointments.filter(
+      (a) =>
+        a.barber_id === form.barberId &&
+        a.date === form.date &&
+        a.status === "confirmed",
+    );
+
+    const duration = getServiceDuration(form.service, servicesList);
+    const blocked: string[] = [];
+
+    HOURS.forEach((slot) => {
+      const slotStart = timeToMinutes(slot);
+      const slotEnd = slotStart + duration;
+
+      const hasConflict = existingAppts.some((appt: any) => {
+        const apptStart = timeToMinutes(appt.time);
+        const apptDuration = getServiceDuration(appt.service, servicesList);
+        const apptEnd = apptStart + apptDuration;
+        return slotStart < apptEnd && slotEnd > apptStart;
+      });
+
+      if (hasConflict) blocked.push(slot);
+    });
+
+    setAdmTakenSlots(blocked);
+  }, [
+    form.barberId,
+    form.date,
+    form.service,
+    appointments,
+    blockedDates,
+    servicesList,
+  ]);
 
   async function handleCreateAppointment() {
     if (!form.barberId || !form.service || !form.date || !form.time)
@@ -200,6 +300,7 @@ export default function AdminPage() {
           "id, service, date, time, status, price_applied, barber_id, created_at, profiles(name), barbers(display_name)",
         )
         .gte("date", firstDayThisMonth)
+        .lte("date", lastDayThisMonth)
         .order("date", { ascending: false })
         .order("time", { ascending: false });
       setAppointments((newAppts as any) || []);
@@ -214,7 +315,8 @@ export default function AdminPage() {
       appt.service.startsWith("BLOQUEIO")
     )
       return 0;
-    if (appt.price_applied !== null && appt.price_applied > 0)
+
+    if (appt.price_applied !== null && appt.price_applied !== undefined)
       return Number(appt.price_applied);
 
     let svcName = appt.service;
@@ -224,15 +326,30 @@ export default function AdminPage() {
     return svc ? svc.price : 0;
   }
 
-  // --- MATEMÁTICA: REALIZADO vs PROJETADO ---
+  // --- MATEMÁTICA PESADA ESPELHADA (IGUAL AO BARBEIRO) ---
   const activePlans = clientPlans.filter((p) => p.status === "active");
   const mrr = activePlans.reduce((sum, p) => sum + Number(p.price_paid), 0);
 
-  const plansThisMonth = clientPlans.filter(
-    (p) => p.created_at && p.created_at.split("T")[0] >= firstDayThisMonth,
-  );
+  const plansThisMonth = clientPlans.filter((p) => {
+    const planDate = p.start_date
+      ? p.start_date.split("T")[0]
+      : p.created_at?.split("T")[0];
+    return (
+      planDate && planDate >= firstDayThisMonth && planDate <= lastDayThisMonth
+    );
+  });
+
   const revenuePlanosMes = plansThisMonth.reduce(
     (sum, p) => sum + Number(p.price_paid),
+    0,
+  );
+
+  const salesThisMonth = productSales.filter((s) => {
+    const saleDate = s.created_at.split("T")[0];
+    return saleDate >= firstDayThisMonth && saleDate <= lastDayThisMonth;
+  });
+  const revenueProdutosMes = salesThisMonth.reduce(
+    (sum, s) => sum + Number(s.total_price),
     0,
   );
 
@@ -245,6 +362,14 @@ export default function AdminPage() {
       (a.status === "confirmed" && isPast(a.date, a.time)),
   );
 
+  // --- O EXTERMINADOR DE FANTASMAS (Para mostrar apenas os clientes reais) ---
+  const validProjectedAppts = projectedAppts.filter(
+    (a) => !a.service.startsWith("BLOQUEIO"),
+  );
+  const validRealizedAppts = realizedAppts.filter(
+    (a) => !a.service.startsWith("BLOQUEIO"),
+  );
+
   const revenueCadeirasRealizado = realizedAppts.reduce(
     (sum, a) => sum + getActualPrice(a),
     0,
@@ -254,8 +379,10 @@ export default function AdminPage() {
     0,
   );
 
-  const totalRealizado = revenuePlanosMes + revenueCadeirasRealizado;
-  const totalProjetado = revenuePlanosMes + revenueCadeirasProjetado;
+  const totalRealizado =
+    revenuePlanosMes + revenueProdutosMes + revenueCadeirasRealizado;
+  const totalProjetado =
+    revenuePlanosMes + revenueProdutosMes + revenueCadeirasProjetado;
 
   const barberStats = barbers.map((b) => {
     const bProjectedAppts = projectedAppts.filter((a) => a.barber_id === b.id);
@@ -264,6 +391,12 @@ export default function AdminPage() {
     const bPlansThisMonth = plansThisMonth.filter((p) => p.barber_id === b.id);
     const bRevenuePlanosMes = bPlansThisMonth.reduce(
       (sum, p) => sum + Number(p.price_paid),
+      0,
+    );
+
+    const bSalesThisMonth = salesThisMonth.filter((s) => s.barber_id === b.id);
+    const bRevenueProdutosMes = bSalesThisMonth.reduce(
+      (sum, s) => sum + Number(s.total_price),
       0,
     );
 
@@ -276,12 +409,19 @@ export default function AdminPage() {
       0,
     );
 
+    const validBRealizedAppts = bRealizedAppts.filter(
+      (a) => !a.service.startsWith("BLOQUEIO"),
+    );
+    const validBProjectedAppts = bProjectedAppts.filter(
+      (a) => !a.service.startsWith("BLOQUEIO"),
+    );
+
     return {
       ...b,
-      countRealized: bRealizedAppts.length,
-      countProjected: bProjectedAppts.length,
-      revenueRealizado: bRevRealizado + bRevenuePlanosMes,
-      revenueProjetado: bRevProjetado + bRevenuePlanosMes,
+      countRealized: validBRealizedAppts.length,
+      countProjected: validBProjectedAppts.length,
+      revenueRealizado: bRevRealizado + bRevenuePlanosMes + bRevenueProdutosMes,
+      revenueProjetado: bRevProjetado + bRevenuePlanosMes + bRevenueProdutosMes,
       appts: bProjectedAppts,
     };
   });
@@ -335,7 +475,6 @@ export default function AdminPage() {
     }
   }
 
-  // FUNÇÃO PARA DISPARAR RESET DE SENHA VIA API ROUTE (WHATSAPP OU TEMPORÁRIA)
   async function handleResetAction(
     type: "whatsapp_link" | "temporary_password",
   ) {
@@ -405,7 +544,6 @@ export default function AdminPage() {
 
   return (
     <main className="min-h-screen bg-zinc-950 text-white flex flex-col md:flex-row font-sans">
-      {/* HEADER MOBILE AJUSTADO */}
       <header className="md:hidden bg-zinc-900 border-b border-zinc-800 p-3 flex justify-between items-center sticky top-0 z-40">
         <div className="flex items-center gap-2">
           <ShieldCheck className="text-amber-400" size={20} />
@@ -429,7 +567,6 @@ export default function AdminPage() {
         </div>
       </header>
 
-      {/* SIDEBAR DESKTOP & MOBILE MENU */}
       <aside
         className={`${isMobileMenuOpen ? "flex" : "hidden"} md:flex flex-col w-full md:w-64 bg-zinc-950 border-r border-zinc-800 fixed md:sticky top-[61px] md:top-0 h-[calc(100vh-61px)] md:h-screen z-30 p-4`}
       >
@@ -447,7 +584,6 @@ export default function AdminPage() {
           </div>
         </div>
 
-        {/* BOTÃO VIP DESKTOP */}
         <button
           onClick={() => setShowModal(true)}
           className="hidden md:flex items-center justify-center gap-2 w-full px-4 py-3 mb-6 bg-amber-400 text-zinc-950 hover:bg-amber-300 rounded-xl font-black uppercase text-[10px] tracking-widest transition-all shadow-[0_4px_15px_rgba(251,191,36,0.15)]"
@@ -476,9 +612,7 @@ export default function AdminPage() {
         </div>
       </aside>
 
-      {/* ÁREA PRINCIPAL COM COMPACTAÇÃO RESPONSIVA */}
       <section className="flex-1 p-4 md:p-8 max-w-6xl w-full mx-auto pb-12">
-        {/* --- ABA 1: VISÃO GERAL --- */}
         {activeTab === "overview" && (
           <div className="flex flex-col gap-4 md:gap-6 animate-in fade-in duration-300">
             <div>
@@ -509,10 +643,13 @@ export default function AdminPage() {
                   </div>
                   <div className="flex justify-between text-xs">
                     <span className="text-zinc-500">
-                      Planos Vendidos no Mês:
+                      Planos e Produtos no Mês:
                     </span>{" "}
                     <span className="font-semibold text-emerald-400">
-                      R$ {revenuePlanosMes.toFixed(2).replace(".", ",")}
+                      R${" "}
+                      {(revenuePlanosMes + revenueProdutosMes)
+                        .toFixed(2)
+                        .replace(".", ",")}
                     </span>
                   </div>
                 </div>
@@ -537,10 +674,13 @@ export default function AdminPage() {
                   </div>
                   <div className="flex justify-between text-xs">
                     <span className="text-zinc-500">
-                      Planos Vendidos no Mês:
+                      Planos e Produtos no Mês:
                     </span>{" "}
                     <span className="font-semibold text-emerald-400">
-                      R$ {revenuePlanosMes.toFixed(2).replace(".", ",")}
+                      R${" "}
+                      {(revenuePlanosMes + revenueProdutosMes)
+                        .toFixed(2)
+                        .replace(".", ",")}
                     </span>
                   </div>
                 </div>
@@ -571,10 +711,10 @@ export default function AdminPage() {
                 </h3>
                 <div className="flex items-baseline gap-2">
                   <div className="text-2xl md:text-3xl font-black text-white">
-                    {realizedAppts.length}
+                    {validRealizedAppts.length}
                   </div>
                   <div className="text-[10px] md:text-sm text-zinc-500 font-bold uppercase">
-                    / {projectedAppts.length} agendados
+                    / {validProjectedAppts.length} agendados
                   </div>
                 </div>
                 <div className="mt-3 md:mt-4 pt-3 md:pt-4 border-t border-zinc-800/60 flex items-center justify-between text-[10px] md:text-xs text-zinc-500">
@@ -585,7 +725,6 @@ export default function AdminPage() {
           </div>
         )}
 
-        {/* --- ABA 2: A SOCIEDADE (COM GOD MODE DRILL-DOWN) --- */}
         {activeTab === "team" && (
           <div className="flex flex-col gap-4 md:gap-6 animate-in slide-in-from-right-4 duration-300">
             {!selectedBarber ? (
@@ -650,7 +789,6 @@ export default function AdminPage() {
                 </div>
               </>
             ) : (
-              // --- GOD MODE: VISÃO DO BARBEIRO SELECIONADO ---
               <div className="flex flex-col gap-4 md:gap-6 animate-in slide-in-from-right-4 duration-300">
                 <button
                   onClick={() => setSelectedBarber(null)}
@@ -695,7 +833,7 @@ export default function AdminPage() {
                         <div className="bg-zinc-900 border border-zinc-800 p-4 md:p-5 rounded-2xl md:rounded-[1.5rem] shadow-lg flex flex-col justify-between gap-3 md:gap-4">
                           <div>
                             <span className="text-[9px] md:text-[10px] font-bold text-zinc-500 uppercase tracking-widest block mb-1">
-                              Cadeiras + Planos Vendidos
+                              Receita do Barbeiro
                             </span>
                             <div className="text-xl md:text-2xl font-black text-emerald-400">
                               R${" "}
@@ -821,7 +959,6 @@ export default function AdminPage() {
           </div>
         )}
 
-        {/* --- ABA 3: USUÁRIOS E PERFIS --- */}
         {activeTab === "users" && (
           <div className="flex flex-col gap-4 md:gap-6 animate-in fade-in duration-300">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 md:gap-4">
@@ -910,7 +1047,6 @@ export default function AdminPage() {
                               <option value="admin">Promover a Admin</option>
                             </select>
                           )}
-                          {/* NOVO: BOTÃO DE RESET (Pode usar um ícone de Cadeado/Key aqui do Lucide se quiser) */}
                           <button
                             onClick={() => {
                               setSelectedUserForReset(u);
@@ -942,7 +1078,6 @@ export default function AdminPage() {
           </div>
         )}
 
-        {/* --- ABA 4: AUDITORIA (LOG) --- */}
         {activeTab === "audit" && (
           <div className="flex flex-col gap-4 md:gap-6 animate-in fade-in duration-300">
             <div>
@@ -1001,7 +1136,6 @@ export default function AdminPage() {
         )}
       </section>
 
-      {/* MODAL AGENDAMENTO VIP ADMIN */}
       {showModal && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 backdrop-blur-sm animate-in fade-in">
           <div className="bg-zinc-900 border border-zinc-800 p-5 md:p-6 rounded-2xl md:rounded-3xl w-full max-w-md flex flex-col gap-4 md:gap-5 shadow-2xl">
@@ -1052,17 +1186,20 @@ export default function AdminPage() {
                   min={todayStr}
                   onChange={(e) => setForm({ ...form, date: e.target.value })}
                 />
+
                 <select
                   className="bg-zinc-800 border border-zinc-700 p-3 md:p-3.5 rounded-xl outline-none text-xs md:text-sm text-white focus:border-amber-400"
                   value={form.time}
                   onChange={(e) => setForm({ ...form, time: e.target.value })}
                 >
                   <option value="">Horário</option>
-                  {HOURS.map((h: string) => (
-                    <option key={h} value={h}>
-                      {h}
-                    </option>
-                  ))}
+                  {HOURS.filter((h) => !admTakenSlots.includes(h)).map(
+                    (h: string) => (
+                      <option key={h} value={h}>
+                        {h}
+                      </option>
+                    ),
+                  )}
                 </select>
               </div>
             </div>
@@ -1085,7 +1222,7 @@ export default function AdminPage() {
           </div>
         </div>
       )}
-      {/* MODAL SUPORTE DE SENHA (ADMIN) */}
+
       {showResetModal && selectedUserForReset && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 backdrop-blur-sm animate-in fade-in">
           <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 w-full max-w-sm flex flex-col gap-5 shadow-2xl">

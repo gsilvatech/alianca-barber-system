@@ -614,6 +614,7 @@ export default function BarbeiroPage() {
       isBlock: boolean,
       isProduct: boolean,
       itemBarberId: string,
+      isPlanSale: boolean = false,
     ) => {
       const [ay, am, ad] = dateStr.split("-");
       const aYear = parseInt(ay);
@@ -622,29 +623,32 @@ export default function BarbeiroPage() {
       const dayMatch = chartDiario.find((d) => d.date === dateStr);
       if (dayMatch) {
         dayMatch.gen += val;
-        if (!isBlock && !isProduct) dayMatch.genClients += 1;
+        // Só conta como cliente se NÃO for bloqueio, produto ou venda de plano
+        if (!isBlock && !isProduct && !isPlanSale) dayMatch.genClients += 1;
         if (itemBarberId === barberId) {
           dayMatch.ind += val;
-          if (!isBlock && !isProduct) dayMatch.indClients += 1;
+          if (!isBlock && !isProduct && !isPlanSale) dayMatch.indClients += 1;
         }
       }
 
       if (aYear === currentYear) {
         chartMensal[aMonthIdx].gen += val;
-        if (!isBlock && !isProduct) chartMensal[aMonthIdx].genClients += 1;
+        if (!isBlock && !isProduct && !isPlanSale)
+          chartMensal[aMonthIdx].genClients += 1;
         if (itemBarberId === barberId) {
           chartMensal[aMonthIdx].ind += val;
-          if (!isBlock && !isProduct) chartMensal[aMonthIdx].indClients += 1;
+          if (!isBlock && !isProduct && !isPlanSale)
+            chartMensal[aMonthIdx].indClients += 1;
         }
       }
 
       const yearMatch = chartAnual.find((y) => y.year === aYear);
       if (yearMatch) {
         yearMatch.gen += val;
-        if (!isBlock && !isProduct) yearMatch.genClients += 1;
+        if (!isBlock && !isProduct && !isPlanSale) yearMatch.genClients += 1;
         if (itemBarberId === barberId) {
           yearMatch.ind += val;
-          if (!isBlock && !isProduct) yearMatch.indClients += 1;
+          if (!isBlock && !isProduct && !isPlanSale) yearMatch.indClients += 1;
         }
       }
 
@@ -652,36 +656,36 @@ export default function BarbeiroPage() {
         total += val;
         if (dateStr === today) {
           hoje += val;
-          if (!isBlock && !isProduct) clientesHoje++;
+          if (!isBlock && !isProduct && !isPlanSale) clientesHoje++;
         }
         if (dateStr === yesterdayStr) {
           ontem += val;
         }
         if (dateStr >= firstDayThisMonth && dateStr <= today) {
           mesAtual += val;
-          if (!isBlock && !isProduct) clientesMesAtual++;
+          if (!isBlock && !isProduct && !isPlanSale) clientesMesAtual++;
         }
         if (dateStr >= firstDayLastMonth && dateStr <= lastDayLastMonth) {
           mesPassado += val;
-          if (!isBlock && !isProduct) clientesMesPassado++;
+          if (!isBlock && !isProduct && !isPlanSale) clientesMesPassado++;
         }
       }
 
       if (dateStr === today) {
         globalHoje += val;
-        if (!isBlock && !isProduct) globalClientesHoje++;
+        if (!isBlock && !isProduct && !isPlanSale) globalClientesHoje++;
       }
       if (dateStr === yesterdayStr) {
         globalOntem += val;
       }
       if (dateStr >= firstDayThisMonth && dateStr <= today) {
         globalMesAtual += val;
-        if (!isBlock && !isProduct) globalClientesMesAtual++;
+        if (!isBlock && !isProduct && !isPlanSale) globalClientesMesAtual++;
         if (isProduct) globalProdutosMesAtual += val;
       }
       if (dateStr >= firstDayLastMonth && dateStr <= lastDayLastMonth) {
         globalMesPassado += val;
-        if (!isBlock && !isProduct) globalClientesMesPassado++;
+        if (!isBlock && !isProduct && !isPlanSale) globalClientesMesPassado++;
       }
     };
 
@@ -690,7 +694,14 @@ export default function BarbeiroPage() {
         const planDate = p.start_date
           ? p.start_date.split("T")[0]
           : p.created_at.split("T")[0];
-        processItem(Number(p.price_paid), planDate, false, false, p.barber_id);
+        processItem(
+          Number(p.price_paid),
+          planDate,
+          false,
+          false,
+          p.barber_id,
+          true,
+        );
       });
     }
 
@@ -718,7 +729,8 @@ export default function BarbeiroPage() {
 
         let val = 0;
         if (!isBlock && !isPlano && !isAdmin) {
-          if (a.price_applied !== null && a.price_applied > 0) {
+          // Correção: Agora ele aceita o número 0 como um valor legítimo
+          if (a.price_applied !== null && a.price_applied !== undefined) {
             val = Number(a.price_applied);
           } else {
             let svcName = a.service;
