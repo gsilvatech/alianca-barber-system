@@ -1,126 +1,148 @@
 "use client";
-import { useState, useEffect, Suspense } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
 
-function AtualizarSenhaContent() {
+import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { createClient } from "@/lib/supabase/client";
+import { Lock, CheckCircle2, Loader2, AlertTriangle } from "lucide-react";
+
+export default function AtualizarSenhaPage() {
   const router = useRouter();
-  const searchParams = useSearchParams();
   const supabase = createClient();
   
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [isForced, setIsForced] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
 
+  // Verifica se o usuário tem uma sessão válida ao entrar na tela
   useEffect(() => {
-    if (searchParams.get("forced") === "true") {
-      setIsForced(true);
+    async function checkSession() {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        setError("Sessão inválida ou link expirado. Por favor, solicite um novo link de recuperação.");
+      }
     }
-  }, [searchParams]);
+    checkSession();
+  }, [supabase]);
 
-  async function handleUpdate(e: React.FormEvent) {
+  async function handleUpdatePassword(e: React.FormEvent) {
     e.preventDefault();
-    setLoading(true);
-    setError("");
+    setError(null);
 
-    const { data: { user }, error: authError } = await supabase.auth.updateUser({
-      password: password,
-    });
-
-    if (authError) {
-      setError("Erro ao atualizar a senha. O link pode ter expirado ou a senha é muito fraca.");
-      setLoading(false);
+    if (password.length < 6) {
+      setError("A senha deve ter pelo menos 6 caracteres.");
       return;
     }
 
-    try {
-      if (user) {
-        await supabase
-          .from("profiles")
-          .update({ require_password_change: false })
-          .eq("id", user.id);
-      }
+    if (password !== confirmPassword) {
+      setError("As senhas não coincidem.");
+      return;
+    }
 
-      alert("Senha atualizada com sucesso! Conecte-se novamente com sua nova senha. 💎");
+    setLoading(true);
+
+    try {
+      const { error: updateError } = await supabase.auth.updateUser({
+        password: password,
+      });
+
+      if (updateError) throw updateError;
+
+      setSuccess(true);
       
-      await supabase.auth.signOut(); 
-      router.push("/login");
-    } catch (err) {
-      console.error("Erro ao desativar flag no profile:", err);
-      router.push("/login");
+      setTimeout(() => {
+        router.push("/login");
+      }, 3000);
+      
+    } catch (err: any) {
+      console.error(err);
+      setError(
+        err.message || "Erro ao atualizar a senha. O link pode ter expirado."
+      );
     } finally {
       setLoading(false);
     }
   }
 
   return (
-    <div className="w-full max-w-sm flex flex-col justify-center">
-      <div className="text-center mb-6">
-        <img
-          src="/logo.png"
-          alt="Aliança Barber Club"
-          className="h-32 w-auto mx-auto mix-blend-lighten"
-        />
-        <h1 className="text-xl font-bold text-white mt-4 italic">
-          {isForced ? "Definir Senha Definitiva" : "Nova Senha"}
-        </h1>
-        <p className="text-zinc-500 text-xs mt-1">
-          {isForced 
-            ? "Você acessou com uma senha provisória. Por segurança, escolha uma nova senha." 
-            : "Digite sua nova senha de acesso abaixo."}
-        </p>
-      </div>
-
-      <form
-        onSubmit={handleUpdate}
-        className="bg-zinc-900 rounded-2xl p-5 flex flex-col gap-4 border border-zinc-800 shadow-2xl"
-      >
-        <div className="flex flex-col gap-0.5">
-          <label className="text-zinc-400 text-xs font-medium ml-0.5">
-            Nova Senha
-          </label>
-          <input
-            type="password"
-            required
-            minLength={6}
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            className="bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none focus:border-amber-400 transition-colors"
-            placeholder="Mínimo 6 caracteres"
-          />
+    <main className="min-h-screen bg-zinc-950 flex flex-col items-center justify-center p-4 font-sans text-white">
+      <div className="w-full max-w-md bg-zinc-900 border border-zinc-800 rounded-3xl p-8 shadow-2xl">
+        <div className="flex flex-col items-center gap-4 mb-8">
+          <div className="bg-amber-400 p-3 rounded-2xl text-zinc-950">
+            <Lock size={28} strokeWidth={2.5} />
+          </div>
+          <div className="text-center">
+            <h1 className="text-2xl font-black italic">Nova Senha</h1>
+            <p className="text-zinc-500 text-sm mt-1">
+              Digite e confirme a sua nova senha de acesso.
+            </p>
+          </div>
         </div>
 
-        {error && (
-          <p className="text-red-400 text-xs text-center font-medium">
-            {error}
-          </p>
+        {success ? (
+          <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-2xl p-6 flex flex-col items-center gap-3 text-center animate-in zoom-in-95">
+            <CheckCircle2 size={40} className="text-emerald-400" />
+            <h3 className="font-bold text-emerald-400 text-lg">Senha Atualizada!</h3>
+            <p className="text-zinc-400 text-sm">
+              Sua senha foi alterada com sucesso. Redirecionando...
+            </p>
+          </div>
+        ) : (
+          <form onSubmit={handleUpdatePassword} className="flex flex-col gap-5">
+            {error && (
+              <div className="bg-red-500/10 border border-red-500/20 p-4 rounded-xl flex items-start gap-3 animate-in fade-in">
+                <AlertTriangle className="text-red-400 shrink-0 mt-0.5" size={18} />
+                <p className="text-red-400 text-xs font-medium leading-relaxed">
+                  {error}
+                </p>
+              </div>
+            )}
+
+            <div className="flex flex-col gap-1.5">
+              <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider ml-1">
+                Nova Senha
+              </label>
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="••••••••"
+                required
+                className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3.5 text-white outline-none focus:border-amber-400 transition-colors"
+              />
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider ml-1">
+                Confirme a Senha
+              </label>
+              <input
+                type="password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                placeholder="••••••••"
+                required
+                className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3.5 text-white outline-none focus:border-amber-400 transition-colors"
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={loading || !!error}
+              className="w-full mt-2 bg-amber-400 text-zinc-950 font-black py-4 rounded-xl uppercase text-xs tracking-widest disabled:opacity-50 hover:bg-amber-300 transition-all flex justify-center items-center gap-2"
+            >
+              {loading ? (
+                <>
+                  <Loader2 size={16} className="animate-spin" /> Processando...
+                </>
+              ) : (
+                "Salvar Nova Senha"
+              )}
+            </button>
+          </form>
         )}
-
-        <button
-          type="submit"
-          disabled={loading}
-          className="bg-amber-400 text-zinc-950 font-black py-3 rounded-xl hover:bg-amber-300 transition-colors disabled:opacity-50 mt-1 uppercase text-xs tracking-wider shadow-lg shadow-amber-400/10"
-        >
-          {loading ? "Salvando..." : "Salvar nova senha"}
-        </button>
-      </form>
-
-      <div className="flex flex-col items-center justify-center gap-1.5 mt-6 pt-3 border-t border-zinc-900/40">
-        <p className="text-[9px] tracking-widest text-zinc-600 font-bold uppercase">
-          Powered by <span className="text-amber-500/80">@SGO</span>
-        </p>
       </div>
-    </div>
-  );
-}
-
-export default function AtualizarSenhaPage() {
-  return (
-    <main className="min-h-screen bg-zinc-950 flex flex-col items-center justify-center px-4 py-4 font-sans">
-      <Suspense fallback={<div className="text-amber-400 animate-pulse font-bold text-sm">Carregando segurança...</div>}>
-        <AtualizarSenhaContent />
-      </Suspense>
     </main>
   );
 }
