@@ -34,6 +34,7 @@ import {
   Info,
   Loader2,
   Lock,
+  ShieldCheck,
 } from "lucide-react";
 
 // --- HELPER DE DATA LOCAL (CORRIGE O FUSO HORÁRIO DO BRASIL) ---
@@ -432,6 +433,45 @@ export default function BarbeiroPage() {
     } else {
       alert("Conta excluída e CRM limpo com sucesso! 🧹");
       loadCRMData(); // Recarrega a lista instantaneamente
+    }
+  }
+
+  // --- ESTADOS: RESET DE SENHA (CRM) ---
+  const [showResetModal, setShowResetModal] = useState(false);
+  const [selectedUserForReset, setSelectedUserForReset] = useState<any | null>(
+    null,
+  );
+  const [resetLoading, setResetLoading] = useState(false);
+  const [resetResultLink, setResetResultLink] = useState("");
+  const [showPassMessage, setShowPassMessage] = useState(false);
+
+  async function handleResetAction(
+    type: "whatsapp_link" | "temporary_password",
+  ) {
+    if (!selectedUserForReset) return;
+    setResetLoading(true);
+    try {
+      const res = await fetch("/api/admin/reset-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId: selectedUserForReset.id,
+          actionType: type,
+        }),
+      });
+
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+
+      if (type === "whatsapp_link") {
+        setResetResultLink(data.link);
+      } else {
+        setShowPassMessage(true);
+      }
+    } catch (error: any) {
+      alert("Erro ao processar: " + error.message);
+    } finally {
+      setResetLoading(false);
     }
   }
 
@@ -2603,11 +2643,9 @@ export default function BarbeiroPage() {
                     <Users size={28} />
                   </div>
                   <div className="text-left flex-1">
-                    <h3 className="text-lg font-bold text-white">
-                      CRM & Clientes
-                    </h3>
+                    <h3 className="text-lg font-bold text-white">CRM</h3>
                     <p className="text-zinc-500 text-xs">
-                      Assinaturas e Perfis Fantasmas
+                      Clientes e Assinaturas
                     </p>
                   </div>
                 </button>
@@ -2885,13 +2923,32 @@ export default function BarbeiroPage() {
                               </span>
                             </div>
 
-                            <button
-                              onClick={() => handleDeleteClient(c.id, c.name)}
-                              className="text-zinc-600 hover:text-red-400 bg-zinc-950 p-2.5 rounded-xl border border-zinc-800 hover:border-red-900/50 transition-all opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
-                              title="Excluir Cliente"
-                            >
-                              <Trash2 size={18} />
-                            </button>
+                            {/* --- NOVOS BOTÕES DE AÇÃO --- */}
+                            <div className="flex items-center gap-2">
+                              {/* NOVO BOTÃO: RESET DE SENHA */}
+                              {!c.is_ghost && (
+                                <button
+                                  onClick={() => {
+                                    setSelectedUserForReset(c);
+                                    setResetResultLink("");
+                                    setShowPassMessage(false);
+                                    setShowResetModal(true);
+                                  }}
+                                  className="text-amber-400 hover:text-amber-300 bg-zinc-950 p-2.5 rounded-xl border border-zinc-800 hover:border-amber-400/50 transition-all opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
+                                  title="Suporte de Acesso (Senha)"
+                                >
+                                  <ShieldCheck size={18} />
+                                </button>
+                              )}
+
+                              <button
+                                onClick={() => handleDeleteClient(c.id, c.name)}
+                                className="text-zinc-600 hover:text-red-400 bg-zinc-950 p-2.5 rounded-xl border border-zinc-800 hover:border-red-900/50 transition-all opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
+                                title="Excluir Cliente"
+                              >
+                                <Trash2 size={18} />
+                              </button>
+                            </div>
                           </div>
                         ))}
 
@@ -3387,7 +3444,6 @@ export default function BarbeiroPage() {
         </div>
       )}
 
-      {/* MODAL RENOVAR PLANO (NOVO) */}
       {/* MODAL RENOVAR PLANO (BLINDADO) */}
       {isRenewPlanModalOpen && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[100] px-4 backdrop-blur-sm animate-in fade-in duration-200">
@@ -4014,6 +4070,85 @@ export default function BarbeiroPage() {
           </button>
         </div>
       </div>
+
+      {/* MODAL SUPORTE DE SENHA (CRM BARBEIRO) */}
+      {showResetModal && selectedUserForReset && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[100] p-4 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 w-full max-w-sm flex flex-col gap-5 shadow-2xl">
+            <div>
+              <h3 className="font-bold text-lg md:text-xl text-white flex items-center gap-2">
+                <ShieldCheck className="text-amber-400" size={22} /> Suporte de
+                Acesso
+              </h3>
+              <p className="text-[10px] md:text-xs text-zinc-400 mt-1">
+                Ação para o cliente:{" "}
+                <span className="text-white font-bold">
+                  {selectedUserForReset.name}
+                </span>
+              </p>
+            </div>
+
+            {!resetResultLink && !showPassMessage ? (
+              <div className="flex flex-col gap-3">
+                <button
+                  onClick={() => handleResetAction("whatsapp_link")}
+                  disabled={resetLoading}
+                  className="w-full bg-zinc-800 border border-zinc-700 text-white font-bold py-3 md:py-3.5 rounded-xl text-xs md:text-sm hover:border-amber-400 transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+                >
+                  {resetLoading ? "Gerando..." : "💬 Gerar Link para WhatsApp"}
+                </button>
+                <button
+                  onClick={() => handleResetAction("temporary_password")}
+                  disabled={resetLoading}
+                  className="w-full bg-zinc-800 border border-zinc-700 text-amber-400 font-bold py-3 md:py-3.5 rounded-xl text-xs md:text-sm hover:border-amber-400 transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+                >
+                  {resetLoading
+                    ? "Processando..."
+                    : "🔑 Forçar Senha (Mudar@123)"}
+                </button>
+              </div>
+            ) : resetResultLink ? (
+              <div className="flex flex-col gap-3 text-center">
+                <p className="text-emerald-400 font-bold text-xs">
+                  Link gerado com sucesso!
+                </p>
+                <a
+                  href={`https://wa.me/${selectedUserForReset.phone?.replace(/\D/g, "")}?text=${encodeURIComponent(`Olá ${selectedUserForReset.name.split(" ")[0]}! Segue o seu link de acesso rápido para atualizar a sua senha: ${resetResultLink}`)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full bg-emerald-500 text-zinc-950 font-black py-3 rounded-xl text-center text-xs uppercase tracking-wider hover:bg-emerald-400 transition-colors"
+                >
+                  Enviar via WhatsApp
+                </a>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-3 text-center">
+                <p className="text-emerald-400 font-bold text-xs">
+                  Senha alterada no banco!
+                </p>
+                <div className="bg-zinc-950 p-3 rounded-xl border border-zinc-800 font-mono font-black text-amber-400 text-lg tracking-widest">
+                  Mudar@123
+                </div>
+                <p className="text-[10px] text-zinc-500">
+                  Avise o cliente. Ele será obrigado a trocar a senha ao fazer o
+                  login.
+                </p>
+              </div>
+            )}
+
+            <button
+              onClick={() => {
+                setShowResetModal(false);
+                setSelectedUserForReset(null);
+              }}
+              className="text-zinc-500 hover:text-white text-xs font-bold pt-3 border-t border-zinc-800/60 mt-1"
+            >
+              Fechar Janela
+            </button>
+          </div>
+        </div>
+      )}
+
       <nav className="fixed bottom-0 left-0 right-0 bg-zinc-900/80 backdrop-blur-xl border-t border-zinc-800/50 px-6 pt-3 pb-8 flex justify-between items-center z-50">
         <NavButton icon={Home} label="Início" tabId="home" />
         <NavButton icon={Calendar} label="Agenda" tabId="agenda" />
