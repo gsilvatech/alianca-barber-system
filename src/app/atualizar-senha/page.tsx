@@ -8,7 +8,7 @@ import { Lock, CheckCircle2, Loader2, AlertTriangle } from "lucide-react";
 export default function AtualizarSenhaPage() {
   const router = useRouter();
   const supabase = createClient();
-  
+
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -18,9 +18,13 @@ export default function AtualizarSenhaPage() {
   // Verifica se o usuário tem uma sessão válida ao entrar na tela
   useEffect(() => {
     async function checkSession() {
-      const { data: { session } } = await supabase.auth.getSession();
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
       if (!session) {
-        setError("Sessão inválida ou link expirado. Por favor, solicite um novo link de recuperação.");
+        setError(
+          "Sessão inválida ou link expirado. Por favor, solicite um novo link de recuperação.",
+        );
       }
     }
     checkSession();
@@ -43,25 +47,38 @@ export default function AtualizarSenhaPage() {
     setLoading(true);
 
     try {
+      // 1. Altera a senha na engrenagem de autenticação do Supabase
       const { error: updateError } = await supabase.auth.updateUser({
         password: password,
       });
 
       if (updateError) throw updateError;
 
+      // --- AQUI ESTÁ A CORREÇÃO PARA QUEBRAR O LOOP ---
+      // 2. Resgata o ID do usuário logado que acabou de mudar a senha
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (user) {
+        // 3. Atualiza a tabela profiles desligando o alerta de troca obrigatória
+        await supabase
+          .from("profiles")
+          .update({ require_password_change: false }) // <-- Muda para false aqui!
+          .eq("id", user.id);
+      }
+      // ------------------------------------------------
+
       setSuccess(true);
-      
+
       setTimeout(() => {
         router.push("/login");
       }, 3000);
-      
     } catch (err: any) {
       console.error(err);
       setError(
-        err.message || "Erro ao atualizar a senha. O link pode ter expirado."
+        err.message || "Erro ao atualizar a senha. O link pode ter expirado.",
       );
-    } finally {
-      setLoading(false);
     }
   }
 
@@ -83,7 +100,9 @@ export default function AtualizarSenhaPage() {
         {success ? (
           <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-2xl p-6 flex flex-col items-center gap-3 text-center animate-in zoom-in-95">
             <CheckCircle2 size={40} className="text-emerald-400" />
-            <h3 className="font-bold text-emerald-400 text-lg">Senha Atualizada!</h3>
+            <h3 className="font-bold text-emerald-400 text-lg">
+              Senha Atualizada!
+            </h3>
             <p className="text-zinc-400 text-sm">
               Sua senha foi alterada com sucesso. Redirecionando...
             </p>
@@ -92,7 +111,10 @@ export default function AtualizarSenhaPage() {
           <form onSubmit={handleUpdatePassword} className="flex flex-col gap-5">
             {error && (
               <div className="bg-red-500/10 border border-red-500/20 p-4 rounded-xl flex items-start gap-3 animate-in fade-in">
-                <AlertTriangle className="text-red-400 shrink-0 mt-0.5" size={18} />
+                <AlertTriangle
+                  className="text-red-400 shrink-0 mt-0.5"
+                  size={18}
+                />
                 <p className="text-red-400 text-xs font-medium leading-relaxed">
                   {error}
                 </p>
