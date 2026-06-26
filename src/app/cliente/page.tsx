@@ -16,7 +16,7 @@ import {
   AlertTriangle,
   Edit2,
   CreditCard,
-  Lock, 
+  Lock,
 } from "lucide-react";
 
 // funções de data e hora
@@ -51,7 +51,6 @@ const getServiceDuration = (
 
   let cleanName = serviceString;
 
-  // Limpa as tags que o sistema adiciona automaticamente
   if (cleanName.startsWith("MANUAL:")) {
     cleanName = cleanName.split(" - ")[1] || cleanName;
   }
@@ -59,11 +58,9 @@ const getServiceDuration = (
     cleanName = cleanName.replace("PLANO: ", "");
   }
 
-  // Procura o serviço ignorando espaços extras
   const svc = servicesList.find((s) => s.name.trim() === cleanName.trim());
 
-  // Retorna a duração real do banco, ou 30 min como segurança
-  return svc?.duration || 30;
+  return svc?.duration ? Number(svc.duration) : 30;
 };
 
 type Barber = { id: string; display_name: string; whatsapp: string };
@@ -98,7 +95,7 @@ export default function ClientePage() {
     name: string;
     birth_date?: string;
     phone?: string;
-    require_password_change?: boolean; 
+    require_password_change?: boolean;
   } | null>(null);
   const [barbers, setBarbers] = useState<Barber[]>([]);
   const [appointments, setAppointments] = useState<Appointment[]>([]);
@@ -1341,8 +1338,12 @@ export default function ClientePage() {
                       (h) => (
                         <button
                           key={h}
-                          onClick={() => setTime(h)}
-                          className={`py-3 rounded-xl text-xs font-bold border transition-all ${time === h ? "bg-amber-400 text-zinc-950 border-amber-400" : "bg-zinc-800 border-zinc-700 text-white hover:border-amber-400"}`}
+                          onClick={() => setEditTime(h)}
+                          className={`py-3 rounded-xl text-xs font-bold border transition-all ${
+                            editTime === h 
+                              ? "bg-amber-400 text-zinc-950 border-amber-400"
+                              : "bg-zinc-800 border-zinc-700 text-white hover:border-amber-400"
+                          }`}
                         >
                           {h}
                         </button>
