@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!, // Lembre-se de ter essa chave no seu .env.local
+  process.env.SUPABASE_SERVICE_ROLE_KEY!,
   { auth: { persistSession: false } },
 );
 
@@ -30,7 +30,6 @@ export async function POST(request: Request) {
       const { data, error } = await supabaseAdmin.auth.admin.generateLink({
         type: "recovery",
         email: userEmail,
-        // MUDANÇA AQUI: Usa a variável origin que criamos ali em cima
         options: { redirectTo: `${origin}/atualizar-senha` },
       });
 
@@ -39,9 +38,7 @@ export async function POST(request: Request) {
 
       return NextResponse.json({ link: data.properties.action_link });
     }
-
-    // ... (restante do código continua igual)
-
+    
     // 3. Forçar Senha Provisória
     if (actionType === "temporary_password") {
       const { error: authError } =

@@ -520,6 +520,8 @@ export default function ClientePage() {
       const blocked: string[] = [];
       const closingTime = timeToMinutes("19:00");
       const limitNevouClient = timeToMinutes("15:00");
+      const lunchStart = timeToMinutes("12:00");
+      const lunchEnd = timeToMinutes("13:00");
 
       let actualServiceName = editingAppointment!.service;
       if (actualServiceName.startsWith("MANUAL:")) {
@@ -548,6 +550,13 @@ export default function ClientePage() {
         if (
           actualServiceName.toLowerCase() === "nevou" &&
           slotStart > limitNevouClient
+        ) {
+          blocked.push(slot);
+          return;
+        }
+        if (
+          (slotStart >= lunchStart && slotStart < lunchEnd) ||
+          (slotStart < lunchStart && slotEnd > lunchStart)
         ) {
           blocked.push(slot);
           return;
@@ -1340,7 +1349,7 @@ export default function ClientePage() {
                           key={h}
                           onClick={() => setEditTime(h)}
                           className={`py-3 rounded-xl text-xs font-bold border transition-all ${
-                            editTime === h 
+                            editTime === h
                               ? "bg-amber-400 text-zinc-950 border-amber-400"
                               : "bg-zinc-800 border-zinc-700 text-white hover:border-amber-400"
                           }`}

@@ -8,7 +8,6 @@ const supabase = createClient(
 
 export const revalidate = 0;
 
-// Uma coletânea robusta de 31 versículos selecionados para prosperidade, foco e liderança
 const MASTER_VERSES = [
   {
     content:
@@ -159,7 +158,6 @@ const MASTER_VERSES = [
   },
 ];
 
-// Função de Hashing Determinístico para embaralhar a escolha baseado estritamente na data
 function getScrambledIndex(dateStr: string, totalItems: number): number {
   let hash = 0;
   for (let i = 0; i < dateStr.length; i++) {
@@ -181,7 +179,6 @@ export async function GET() {
     .join("-");
 
   try {
-    // 1. Tenta buscar se o dia já foi registrado no Supabase
     const { data: cached } = await supabase
       .from("daily_words")
       .select("content, reference")
@@ -190,13 +187,11 @@ export async function GET() {
 
     if (cached) return NextResponse.json(cached);
 
-    // 2. Seleção Matemática Embaralhada sem dependência externa de internet
     const itemIndex = getScrambledIndex(today, MASTER_VERSES.length);
     const selectedVerse = MASTER_VERSES[itemIndex];
 
     const { content, reference } = selectedVerse;
 
-    // 3. Registra no banco para histórico e consistência
     await supabase
       .from("daily_words")
       .upsert({ content, reference, date: today }, { onConflict: "date" });
@@ -204,7 +199,6 @@ export async function GET() {
     return NextResponse.json({ content, reference });
   } catch (error) {
     console.error("Erro interno controlado na DailyWord:", error);
-    // Garantia absoluta de retorno para o Next.js nunca receber undefined
     return NextResponse.json(MASTER_VERSES[0]);
   }
 }

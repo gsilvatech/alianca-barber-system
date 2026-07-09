@@ -54,20 +54,18 @@ export default function AtualizarSenhaPage() {
 
       if (updateError) throw updateError;
 
-      // --- AQUI ESTÁ A CORREÇÃO PARA QUEBRAR O LOOP ---
-      // 2. Resgata o ID do usuário logado que acabou de mudar a senha
+      // Resgata o ID do usuário logado que acabou de mudar a senha
       const {
         data: { user },
       } = await supabase.auth.getUser();
 
       if (user) {
-        // 3. Atualiza a tabela profiles desligando o alerta de troca obrigatória
+        // Atualiza a tabela profiles desligando o alerta de troca obrigatória
         await supabase
           .from("profiles")
           .update({ require_password_change: false }) // <-- Muda para false aqui!
           .eq("id", user.id);
       }
-      // ------------------------------------------------
 
       setSuccess(true);
 

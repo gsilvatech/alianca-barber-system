@@ -69,7 +69,6 @@ const getServiceDuration = (
 
   let cleanName = serviceString;
 
-  // Limpa as tags que o sistema adiciona automaticamente
   if (cleanName.startsWith("MANUAL:")) {
     cleanName = cleanName.split(" - ")[1] || cleanName;
   }
@@ -80,8 +79,8 @@ const getServiceDuration = (
   // Procura o serviço ignorando espaços extras
   const svc = servicesList.find((s) => s.name.trim() === cleanName.trim());
 
-  // Retorna a duração real do banco, ou 30 min como segurança
-  return svc?.duration || 30;
+  // Retorna a duração real do banco, ou 40 min como segurança
+  return svc?.duration || 40;
 };
 
 const getNextWeekDate = (dateStr: string, weeksToAdd: number) => {
@@ -91,7 +90,6 @@ const getNextWeekDate = (dateStr: string, weeksToAdd: number) => {
   return getLocalDateStr(date);
 };
 
-// Agrupa bloqueios consecutivos do mesmo motivo em um único item para facilitar a visualização
 function groupAppointments(appts: any[]) {
   const grouped: any[] = [];
   let currentGroup: any = null;
@@ -101,7 +99,6 @@ function groupAppointments(appts: any[]) {
 
     if (isBlock) {
       if (!currentGroup) {
-        // Inicia um novo grupo
         currentGroup = {
           ...appt,
           isGroupedBlock: true,
@@ -112,11 +109,9 @@ function groupAppointments(appts: any[]) {
         currentGroup.date === appt.date &&
         currentGroup.service === appt.service
       ) {
-        // É o mesmo dia e o mesmo motivo? Agrupa!
         currentGroup.blockIds.push(appt.id);
-        currentGroup.endTime = appt.time; // Atualiza o fim para o último horário
+        currentGroup.endTime = appt.time;
       } else {
-        // Mudou o dia ou o motivo, fecha o grupo atual e inicia outro
         grouped.push(currentGroup);
         currentGroup = {
           ...appt,
@@ -126,7 +121,6 @@ function groupAppointments(appts: any[]) {
         };
       }
     } else {
-      // Se for cliente normal, fecha o grupo de bloqueio (se houver) e joga na lista normal
       if (currentGroup) {
         grouped.push(currentGroup);
         currentGroup = null;
@@ -171,6 +165,8 @@ type Product = {
   price: number;
   quantity: number;
   category: string;
+  updated_at?: string;
+  profiles?: { name: string };
 };
 type BarberService = {
   id: string;
@@ -328,7 +324,7 @@ export default function BarbeiroPage() {
   const [crmClients, setCrmClients] = useState<any[]>([]);
   const [isNewClientModalOpen, setIsNewClientModalOpen] = useState(false);
 
-  // NOVA LINHA: Estado para a busca de clientes
+  // Estado para a busca de clientes
   const [clientSearch, setClientSearch] = useState("");
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [savingProfile, setSavingProfile] = useState(false);
@@ -365,19 +361,18 @@ export default function BarbeiroPage() {
       const fileExt = file.name.split(".").pop();
       const fileName = `${barberId}_${Math.random()}.${fileExt}`;
 
-      // 1. Faz o upload da foto para o bucket "avatars" no Supabase
+      // Faz o upload da foto para o bucket "avatars" no Supabase
       const { error: uploadError } = await supabase.storage
         .from("avatars")
         .upload(fileName, file);
 
       if (uploadError) throw uploadError;
 
-      // 2. Pega a URL pública da foto que acabamos de subir
       const {
         data: { publicUrl },
       } = supabase.storage.from("avatars").getPublicUrl(fileName);
 
-      // 3. Atualiza a foto na tela (O usuário ainda precisa clicar em Salvar Perfil)
+      // Atualiza a foto na tela
       setFormProfile({ ...formProfile, avatar_url: publicUrl });
     } catch (error: any) {
       alert("Erro ao enviar a imagem: " + error.message);
@@ -413,7 +408,7 @@ export default function BarbeiroPage() {
     setSavingProfile(false);
   }
 
-  // NOVA FUNÇÃO: Excluir Cliente (Forçado via RPC)
+  // Excluir Cliente (Forçado via RPC)
   async function handleDeleteClient(clientId: string, clientName: string) {
     if (
       !confirm(
@@ -432,7 +427,7 @@ export default function BarbeiroPage() {
       console.error(error);
     } else {
       alert("Conta excluída e CRM limpo com sucesso! 🧹");
-      loadCRMData(); // Recarrega a lista instantaneamente
+      loadCRMData();
     }
   }
 
@@ -477,7 +472,7 @@ export default function BarbeiroPage() {
 
   // --- ESTADOS DE RECORRÊNCIA (MÓDULO VIP E BLOQUEIOS) ---
   const [isRecurring, setIsRecurring] = useState(false);
-  const [recurringWeeks, setRecurringWeeks] = useState("4"); // Padrão: 1 mês (4 semanas)
+  const [recurringWeeks, setRecurringWeeks] = useState("4");
 
   // Vender Plano
   const [isPlanModalOpen, setIsPlanModalOpen] = useState(false);
@@ -769,7 +764,6 @@ export default function BarbeiroPage() {
 
         let val = 0;
         if (!isBlock && !isPlano && !isAdmin) {
-          // Correção: Agora ele aceita o número 0 como um valor legítimo
           if (a.price_applied !== null && a.price_applied !== undefined) {
             val = Number(a.price_applied);
           } else {
@@ -835,8 +829,16 @@ export default function BarbeiroPage() {
 
   async function loadProducts() {
     if (!barberId) return;
-    const { data } = await supabase.from("products").select("*").order("name");
-    setProducts(data || []);
+    const { data, error } = await supabase
+      .from("products")
+      .select(
+        `
+        *,
+        profiles!updated_by (name)
+      `,
+      )
+      .order("name");
+    setProducts((data as any) || []);
   }
   async function loadServicesFromDB() {
     if (!barberId) return;
@@ -916,7 +918,6 @@ export default function BarbeiroPage() {
         .eq("status", "confirmed");
       const existingAppts = data || [];
       const blocked: string[] = [];
-      // Usa o helper para o serviço atual
       const duration = getServiceDuration(
         editingAppointment!.service,
         servicesList,
@@ -940,7 +941,7 @@ export default function BarbeiroPage() {
             return false;
 
           const apptStart = timeToMinutes(appt.time);
-          // Usa o helper para checar a concorrência
+          
           const apptDuration = getServiceDuration(appt.service, servicesList);
 
           const apptEnd = apptStart + apptDuration;
@@ -973,7 +974,7 @@ export default function BarbeiroPage() {
         .eq("status", "confirmed");
       const existingAppts = data || [];
       const blocked: string[] = [];
-      // Usa o helper para o serviço atual
+      
       const duration = getServiceDuration(manualService, servicesList);
 
       HOURS.forEach((slot) => {
@@ -983,7 +984,6 @@ export default function BarbeiroPage() {
         const hasConflict = existingAppts.some((appt: any) => {
           const apptStart = timeToMinutes(appt.time);
 
-          // Usa o helper para checar a concorrência
           const apptDuration = getServiceDuration(appt.service, servicesList);
 
           const apptEnd = apptStart + apptDuration;
@@ -1007,24 +1007,22 @@ export default function BarbeiroPage() {
     if (!newBlockDate || !barberId) return;
     setLoadingBlock(true);
 
-    // 1. Verifica se vai repetir. Se o checkbox estiver marcado, usa o número de semanas. Senão, faz só 1 vez (o padrão atual).
+    // 1. Verifica se vai repetir
     const loops = isRecurring ? parseInt(recurringWeeks) : 1;
 
     if (isFullDay) {
-      // 2. Array para armazenar todos os dias inteiros gerados
       const fullDayBlocks: any[] = [];
 
       for (let i = 0; i < loops; i++) {
         fullDayBlocks.push({
           barber_id: barberId,
-          date: getNextWeekDate(newBlockDate, i), // Função que avança as semanas
+          date: getNextWeekDate(newBlockDate, i),
           reason: newBlockReason || "Folga",
         });
       }
       // Dispara todos os dias de uma vez para o banco
       await supabase.from("blocked_dates").insert(fullDayBlocks);
     } else {
-      // 3. Array para armazenar os horários específicos picados
       const motivoFinal = newBlockReason
         ? `BLOQUEIO: ${newBlockReason}`
         : "BLOQUEIO INDISPONÍVEL";
@@ -1032,7 +1030,7 @@ export default function BarbeiroPage() {
       const timeBlocks: any[] = [];
 
       for (let i = 0; i < loops; i++) {
-        const nextDate = getNextWeekDate(newBlockDate, i); // Avança a semana
+        const nextDate = getNextWeekDate(newBlockDate, i); 
 
         // Pega todos os horários que o barbeiro clicou e injeta nessa data específica
         selectedTimes.forEach((time) => {
@@ -1047,29 +1045,25 @@ export default function BarbeiroPage() {
           });
         });
       }
-      // Dispara todos os horários picados de uma vez para o banco
       await supabase.from("appointments").insert(timeBlocks);
     }
 
-    // 4. Limpeza final e recarga
     setIsRecurring(false);
     setRecurringWeeks("4");
     loadAppts();
     setNewBlockDate("");
     setNewBlockReason("");
     setSelectedTimes([]);
-    setIsRecurring(false); // Desmarca o checkbox de repetição
-    setRecurringWeeks("4"); // Reseta para o padrão de 1 mês
+    setIsRecurring(false); 
+    setRecurringWeeks("4"); 
     setLoadingBlock(false);
   }
 
   async function deleteAppointment(ids: string | string[]) {
     if (!confirm("Remover este bloqueio?")) return;
 
-    // Transforma em array se for um ID único
     const idsToDelete = Array.isArray(ids) ? ids : [ids];
 
-    // Apaga todos os IDs que estiverem dentro dessa lista
     await supabase.from("appointments").delete().in("id", idsToDelete);
     loadAppts();
   }
@@ -1093,13 +1087,11 @@ export default function BarbeiroPage() {
       .update({ status: "canceled" })
       .eq("id", id);
     if (apptToCancel?.client_plan_id) {
-      // 1. Buscamos a lista (array)
       const { data: planData } = await supabase
         .from("client_plans")
         .select("id, cuts_used")
-        .eq("id", apptToCancel.client_plan_id) // Usamos o ID do plano diretamente
+        .eq("id", apptToCancel.client_plan_id) 
         .limit(1);
-      // 2. Pegamos o primeiro item da lista: planData[0]
       const plan = planData ? planData[0] : null;
 
       if (plan && plan.cuts_used > 0) {
@@ -1277,12 +1269,10 @@ export default function BarbeiroPage() {
     loadFinancesAndGoals();
   }
 
-  // Abertura do modal de renovação pré-preenchido com os dados do plano selecionado
   function openRenewModal(plan: any) {
     setRenewPlanData(plan);
     setRenewPlanName(plan.plan_name);
 
-    // Busca o valor atualizado e oficial do plano na tabela de serviços
     const svc = servicesList.find((s) => s.name === plan.plan_name);
 
     if (svc) {
@@ -1327,7 +1317,6 @@ export default function BarbeiroPage() {
     loadFinancesAndGoals();
     setIsRenewingPlan(false);
   }
-  // -------------------------
 
   const clientTodayAppts = today.filter((a) => {
     if (a.status !== "confirmed" || a.service.startsWith("BLOQUEIO"))
@@ -1399,6 +1388,9 @@ export default function BarbeiroPage() {
   }
   async function handleUpdateProduct() {
     setIsUpdatingProduct(true);
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
     await supabase
       .from("products")
       .update({
@@ -1406,8 +1398,11 @@ export default function BarbeiroPage() {
         price: parseFloat(editProductPrice.replace(",", ".")),
         quantity: parseInt(editProductQuantity),
         category: editProductCategory,
+        updated_by: user?.id,
+        updated_at: new Date().toISOString(),
       })
       .eq("id", editProductId);
+
     setIsEditProductModalOpen(false);
     loadProducts();
     setIsUpdatingProduct(false);
@@ -1502,7 +1497,6 @@ export default function BarbeiroPage() {
       : null;
 
   async function handleManualSchedule() {
-    // Se for cliente do CRM, usamos o nome do cliente. Se for avulso, exigimos o manualCustomer.
     const isAvulso = manualClientId === "AVULSO";
     const nomeCliente = isAvulso
       ? manualCustomer
@@ -1518,7 +1512,6 @@ export default function BarbeiroPage() {
 
     let finalPrice = 0;
 
-    // CORREÇÃO: Padrão é só o nome do serviço.
     let finalServiceTag = manualService;
     let planId = null;
 
@@ -1529,19 +1522,16 @@ export default function BarbeiroPage() {
       planId = manualActivePlan.id;
     } else if (isVipDiscount) {
       finalPrice = parseFloat(vipPrice.replace(",", ".")) || 0;
-      // Só bota a tag MANUAL se for realmente um cliente avulso
       if (isAvulso)
         finalServiceTag = `MANUAL: ${manualCustomer} - ${manualService}`;
     } else {
       const svc = servicesList.find((s) => s.name === manualService);
       finalPrice = svc ? svc.price : 0;
-      // Só bota a tag MANUAL se for realmente um cliente avulso
       if (isAvulso)
         finalServiceTag = `MANUAL: ${manualCustomer} - ${manualService}`;
     }
 
-    // --- O CORAÇÃO DO PROBLEMA ESTAVA AQUI ---
-    // LÓGICA DE RECORRÊNCIA: Se estiver ativo, repete X semanas. Senão, faz só 1.
+    // Se estiver ativo, repete X semanas. Senão, faz só 1.
     const loops = isRecurring ? parseInt(recurringWeeks) : 1;
     const appointmentsToInsert = [];
 
@@ -1559,12 +1549,11 @@ export default function BarbeiroPage() {
       });
     }
 
-    // Manda a lista inteira de uma vez para o banco!
     const { error } = await supabase
       .from("appointments")
       .insert(appointmentsToInsert);
 
-    // Lógica para debitar os cortes do plano (agora debita a quantidade de loops)
+    // Lógica para debitar os cortes do plano
     if (usePlan && planId && manualActivePlan) {
       await supabase
         .from("client_plans")
@@ -1934,16 +1923,13 @@ export default function BarbeiroPage() {
                               selectedTimes.length === 0 ||
                               selectedTimes.length > 1
                             ) {
-                              // Primeiro clique: Inicia a seleção do zero
                               setSelectedTimes([h]);
                             } else if (selectedTimes.length === 1) {
-                              // Segundo clique: Pega o início e o fim, e preenche tudo no meio
                               const startIdx = HOURS.indexOf(selectedTimes[0]);
                               const endIdx = HOURS.indexOf(h);
                               const minIdx = Math.min(startIdx, endIdx);
                               const maxIdx = Math.max(startIdx, endIdx);
 
-                              // Fatiamos o array original do menor até o maior + 1
                               const newSelection = HOURS.slice(
                                 minIdx,
                                 maxIdx + 1,
@@ -2099,7 +2085,7 @@ export default function BarbeiroPage() {
                     // Lógica para definir o preço automaticamente
                     if (s.startsWith("PLANO:")) {
                       setManualPrice("R$ 0,00");
-                      setUsePlan(true); // Ativa o checkbox automaticamente
+                      setUsePlan(true); 
                     } else {
                       setUsePlan(false);
                       const sD = servicesList.find((sv) => sv.name === s);
@@ -3016,44 +3002,69 @@ export default function BarbeiroPage() {
                       return (
                         <div
                           key={product.id}
-                          className={`p-4 rounded-2xl flex justify-between items-center border transition-all ${cardStyle}`}
+                          className={`p-4 rounded-2xl flex flex-col border transition-all ${cardStyle}`}
                         >
-                          <div className="flex flex-col">
-                            <h4
-                              className={`font-bold flex items-center gap-2 ${isZerado ? "text-red-400 line-through" : "text-white"}`}
-                            >
-                              {product.name}
-                              {isZerado && (
-                                <span className="text-[9px] bg-red-500 text-white px-1.5 py-0.5 rounded uppercase tracking-wider not-italic no-underline">
-                                  Esgotado
-                                </span>
-                              )}
-                            </h4>
-                            <span
-                              className={`text-xs ${isZerado ? "text-red-500/70" : "text-zinc-500"}`}
-                            >
-                              Qtd: {product.quantity}
-                            </span>
+                          {/* LINHA DE CIMA: Dados do Produto e Botões */}
+                          <div className="flex justify-between items-center">
+                            <div className="flex flex-col">
+                              <h4
+                                className={`font-bold flex items-center gap-2 ${isZerado ? "text-red-400 line-through" : "text-white"}`}
+                              >
+                                {product.name}
+                                {isZerado && (
+                                  <span className="text-[9px] bg-red-500 text-white px-1.5 py-0.5 rounded uppercase tracking-wider not-italic no-underline">
+                                    Esgotado
+                                  </span>
+                                )}
+                              </h4>
+                              <span
+                                className={`text-xs ${isZerado ? "text-red-500/70" : "text-zinc-500"}`}
+                              >
+                                Qtd: {product.quantity}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span
+                                className={`text-sm font-black mr-2 ${isZerado ? "text-red-400/50" : "text-amber-400"}`}
+                              >
+                                R$ {product.price.toFixed(2).replace(".", ",")}
+                              </span>
+                              <button
+                                onClick={() => openEditProductModal(product)}
+                                className="text-zinc-500 p-1.5 hover:text-amber-400 transition-colors"
+                              >
+                                <Edit2 size={16} />
+                              </button>
+                              <button
+                                onClick={() => handleDeleteProduct(product.id)}
+                                className="text-zinc-500 p-1.5 hover:text-red-400 transition-colors"
+                              >
+                                <Trash2 size={16} />
+                              </button>
+                            </div>
                           </div>
-                          <div className="flex items-center gap-2">
-                            <span
-                              className={`text-sm font-black mr-2 ${isZerado ? "text-red-400/50" : "text-amber-400"}`}
-                            >
-                              R$ {product.price.toFixed(2).replace(".", ",")}
-                            </span>
-                            <button
-                              onClick={() => openEditProductModal(product)}
-                              className="text-zinc-500 p-1.5 hover:text-amber-400 transition-colors"
-                            >
-                              <Edit2 size={16} />
-                            </button>
-                            <button
-                              onClick={() => handleDeleteProduct(product.id)}
-                              className="text-zinc-500 p-1.5 hover:text-red-400 transition-colors"
-                            >
-                              <Trash2 size={16} />
-                            </button>
-                          </div>
+
+                          {/* LINHA DE BAIXO: Rodapé de Auditoria */}
+                          {product.updated_at && product.profiles?.name && (
+                            <div className="flex justify-between items-center border-t border-zinc-800/60 pt-2 mt-3 text-[10px]">
+                              <span className="text-zinc-500 italic">
+                                Alterado:{" "}
+                                {new Date(
+                                  product.updated_at,
+                                ).toLocaleDateString("pt-BR")}{" "}
+                                às{" "}
+                                {new Date(
+                                  product.updated_at,
+                                ).toLocaleTimeString("pt-BR", {
+                                  hour: "2-digit",
+                                  minute: "2-digit",
+                                })}
+                              </span>
+                              <span className="text-zinc-400 font-bold uppercase tracking-wider">
+                                Por: {product.profiles.name.split(" ")[0]}
+                              </span>
+                            </div>
+                          )}
                         </div>
                       );
                     })}
@@ -4045,8 +4056,8 @@ export default function BarbeiroPage() {
           <div className="flex flex-col gap-1 border-t border-zinc-800/60 pt-4 mt-2">
             <button
               onClick={() => {
-                setIsProfileOpen(false); // Fecha o painel lateral primeiro
-                router.push("/atualizar-senha"); // Redireciona para a tela de senha
+                setIsProfileOpen(false); 
+                router.push("/atualizar-senha"); 
               }}
               className="w-full py-3.5 rounded-2xl bg-zinc-900 border border-zinc-800 hover:border-amber-400 text-white text-xs font-bold uppercase tracking-widest transition-all flex items-center justify-center gap-2"
             >

@@ -47,7 +47,7 @@ export default function CadastroPage() {
       return;
     }
 
-    // 2. Grava ou atualiza a tabela pública 'profiles' se o usuário foi criado com sucesso
+    // Grava ou atualiza a tabela pública 'profiles' se o usuário foi criado com sucesso
     if (authData?.user) {
       const { error: profileError } = await supabase.from("profiles").upsert({
         id: authData.user.id,
@@ -60,7 +60,7 @@ export default function CadastroPage() {
       if (profileError) {
         console.error("Erro ao salvar perfil público:", profileError.message);
       } else if (form.phone) {
-        // 3. Se o telefone foi preenchido, tenta fundir com perfil fantasma (se existir)
+        // Se o telefone foi preenchido, tenta fundir com perfil fantasma (se existir)
         const { data: foiFundido } = await supabase.rpc("merge_ghost_profile", {
           user_phone: form.phone,
         });
@@ -73,7 +73,7 @@ export default function CadastroPage() {
       }
     }
 
-    // 4. Redireciona o cliente para a Home dele já com tudo carregado
+    // Redireciona o cliente para a Home dele já com tudo carregado
     router.push("/cliente");
     router.refresh();
   }
