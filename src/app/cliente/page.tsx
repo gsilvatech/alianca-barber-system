@@ -47,7 +47,7 @@ const getServiceDuration = (
   serviceString: string,
   servicesList: any[],
 ): number => {
-  if (!serviceString) return 30;
+  if (!serviceString) return 60;
 
   let cleanName = serviceString;
 
@@ -60,7 +60,7 @@ const getServiceDuration = (
 
   const svc = servicesList.find((s) => s.name.trim() === cleanName.trim());
 
-  return svc?.duration ? Number(svc.duration) : 30;
+  return svc?.duration ? Number(svc.duration) : 60;
 };
 
 type Barber = { id: string; display_name: string; whatsapp: string };

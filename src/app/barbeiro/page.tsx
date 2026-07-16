@@ -65,7 +65,7 @@ const getServiceDuration = (
   serviceString: string,
   servicesList: any[],
 ): number => {
-  if (!serviceString) return 30;
+  if (!serviceString) return 60;
 
   let cleanName = serviceString;
 
