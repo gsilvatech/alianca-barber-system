@@ -65,22 +65,45 @@ const getServiceDuration = (
   serviceString: string,
   servicesList: any[],
 ): number => {
-  if (!serviceString) return 60;
+  if (!serviceString) return 60; // Fallback absoluto de segurança
 
-  let cleanName = serviceString;
+  let cleanName = serviceString.trim();
 
   if (cleanName.startsWith("MANUAL:")) {
-    cleanName = cleanName.split(" - ")[1] || cleanName;
+    cleanName = cleanName.split(" - ")[1]?.trim() || cleanName;
   }
-  if (cleanName.startsWith("PLANO: ")) {
-    cleanName = cleanName.replace("PLANO: ", "");
+  const isPlan = cleanName.startsWith("PLANO: ");
+  if (isPlan) {
+    cleanName = cleanName.replace("PLANO: ", "").trim();
   }
 
-  // Procura o serviço ignorando espaços extras
-  const svc = servicesList.find((s) => s.name.trim() === cleanName.trim());
+  const nameLower = cleanName.toLowerCase();
 
-  // Retorna a duração real do banco, ou 40 min como segurança
-  return svc?.duration || 40;
+  // 2. TRAVA DE ANÁLISE SEMÂNTICA
+  const temCabelo = nameLower.includes("cabelo") || nameLower.includes("corte");
+  const temBarba = nameLower.includes("barba");
+  const temQuimica =
+    nameLower.includes("nevou") ||
+    nameLower.includes("luzes") ||
+    nameLower.includes("selagem") ||
+    nameLower.includes("platinado");
+
+  if (temQuimica) return 120;
+  if (temCabelo && temBarba) return 60;
+
+  if (isPlan) {
+    if (temCabelo) return 40;
+    if (temBarba) return 30;
+  }
+
+  const svc = servicesList.find(
+    (s) => s.name.trim().toLowerCase() === nameLower,
+  );
+  if (svc && svc.duration) {
+    return Number(svc.duration);
+  }
+
+  return 60;
 };
 
 const getNextWeekDate = (dateStr: string, weeksToAdd: number) => {

@@ -42,25 +42,50 @@ const isPast = (dateStr: string, timeStr: string) => {
   return now > apptDate;
 };
 
-// duração do serviço considerando as variações de nome e a tag de plano
+// --- HELPER DE DURAÇÃO SEGURA ---
 const getServiceDuration = (
   serviceString: string,
   servicesList: any[],
 ): number => {
   if (!serviceString) return 60;
 
-  let cleanName = serviceString;
+  let cleanName = serviceString.trim();
 
   if (cleanName.startsWith("MANUAL:")) {
-    cleanName = cleanName.split(" - ")[1] || cleanName;
+    cleanName = cleanName.split(" - ")[1]?.trim() || cleanName;
   }
-  if (cleanName.startsWith("PLANO: ")) {
-    cleanName = cleanName.replace("PLANO: ", "");
+  const isPlan = cleanName.startsWith("PLANO: ");
+  if (isPlan) {
+    cleanName = cleanName.replace("PLANO: ", "").trim();
   }
 
-  const svc = servicesList.find((s) => s.name.trim() === cleanName.trim());
+  const nameLower = cleanName.toLowerCase();
 
-  return svc?.duration ? Number(svc.duration) : 60;
+  // 2. TRAVA DE ANÁLISE SEMÂNTICA
+  const temCabelo = nameLower.includes("cabelo") || nameLower.includes("corte");
+  const temBarba = nameLower.includes("barba");
+  const temQuimica =
+    nameLower.includes("nevou") ||
+    nameLower.includes("luzes") ||
+    nameLower.includes("selagem") ||
+    nameLower.includes("platinado");
+
+  if (temQuimica) return 120;
+  if (temCabelo && temBarba) return 60;
+
+  if (isPlan) {
+    if (temCabelo) return 40;
+    if (temBarba) return 30;
+  }
+
+  const svc = servicesList.find(
+    (s) => s.name.trim().toLowerCase() === nameLower,
+  );
+  if (svc && svc.duration) {
+    return Number(svc.duration);
+  }
+
+  return 60;
 };
 
 type Barber = { id: string; display_name: string; whatsapp: string };
@@ -440,22 +465,11 @@ export default function ClientePage() {
       const lunchStart = timeToMinutes("12:00");
       const lunchEnd = timeToMinutes("13:00");
 
-      let targetServiceForDuration = service;
-      if (bookingViaPlan && activePlan) {
-        const matchedSvc = servicesList.find(
-          (s) =>
-            activePlan.plan_name.toLowerCase().includes(s.name.toLowerCase()) ||
-            s.name.toLowerCase().includes(activePlan.plan_name.toLowerCase()),
-        );
-        targetServiceForDuration = matchedSvc
-          ? matchedSvc.name
-          : servicesList[0]?.name || service;
-      }
-
-      const selectedSvc = servicesList.find(
-        (s) => s.name === targetServiceForDuration,
-      );
-      const duration = selectedSvc?.duration || 30;
+      const finalServiceTag =
+        bookingViaPlan && activePlan
+          ? `PLANO: ${activePlan.plan_name}`
+          : service;
+      const duration = getServiceDuration(finalServiceTag, servicesList);
 
       HOURS.forEach((slot) => {
         const slotStart = timeToMinutes(slot);
@@ -473,7 +487,7 @@ export default function ClientePage() {
           return;
         }
 
-        const nomeServicoTratado = targetServiceForDuration.toLowerCase();
+        const nomeServicoTratado = finalServiceTag.toLowerCase();
         if (
           nomeServicoTratado.includes("nevou") &&
           slotStart > timeToMinutes("15:00")
@@ -523,15 +537,10 @@ export default function ClientePage() {
       const lunchStart = timeToMinutes("12:00");
       const lunchEnd = timeToMinutes("13:00");
 
-      let actualServiceName = editingAppointment!.service;
-      if (actualServiceName.startsWith("MANUAL:")) {
-        actualServiceName = actualServiceName.split(" - ")[1] || "Corte";
-      }
-
-      const selectedSvc = servicesList.find(
-        (s) => s.name === actualServiceName,
+      const duration = getServiceDuration(
+        editingAppointment!.service,
+        servicesList,
       );
-      const duration = selectedSvc?.duration || 60;
 
       HOURS.forEach((slot) => {
         const slotStart = timeToMinutes(slot);
@@ -548,7 +557,7 @@ export default function ClientePage() {
           return;
         }
         if (
-          actualServiceName.toLowerCase() === "nevou" &&
+          editingAppointment!.service.toLowerCase().includes("nevou") &&
           slotStart > limitNevouClient
         ) {
           blocked.push(slot);
