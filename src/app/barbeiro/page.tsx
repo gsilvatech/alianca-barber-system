@@ -941,7 +941,7 @@ export default function BarbeiroPage() {
             return false;
 
           const apptStart = timeToMinutes(appt.time);
-          
+
           const apptDuration = getServiceDuration(appt.service, servicesList);
 
           const apptEnd = apptStart + apptDuration;
@@ -974,7 +974,7 @@ export default function BarbeiroPage() {
         .eq("status", "confirmed");
       const existingAppts = data || [];
       const blocked: string[] = [];
-      
+
       const duration = getServiceDuration(manualService, servicesList);
 
       HOURS.forEach((slot) => {
@@ -1030,7 +1030,7 @@ export default function BarbeiroPage() {
       const timeBlocks: any[] = [];
 
       for (let i = 0; i < loops; i++) {
-        const nextDate = getNextWeekDate(newBlockDate, i); 
+        const nextDate = getNextWeekDate(newBlockDate, i);
 
         // Pega todos os horários que o barbeiro clicou e injeta nessa data específica
         selectedTimes.forEach((time) => {
@@ -1054,8 +1054,8 @@ export default function BarbeiroPage() {
     setNewBlockDate("");
     setNewBlockReason("");
     setSelectedTimes([]);
-    setIsRecurring(false); 
-    setRecurringWeeks("4"); 
+    setIsRecurring(false);
+    setRecurringWeeks("4");
     setLoadingBlock(false);
   }
 
@@ -1090,7 +1090,7 @@ export default function BarbeiroPage() {
       const { data: planData } = await supabase
         .from("client_plans")
         .select("id, cuts_used")
-        .eq("id", apptToCancel.client_plan_id) 
+        .eq("id", apptToCancel.client_plan_id)
         .limit(1);
       const plan = planData ? planData[0] : null;
 
@@ -1510,8 +1510,16 @@ export default function BarbeiroPage() {
     setIsSaving(true);
     console.log("Iniciando salvamento...");
 
-    let finalPrice = 0;
+    // === 🚨 O SEGREDO DO CORINGA ESTÁ AQUI 🚨 ===
+    // Cole aqui o ID do "Cliente Avulso" que você criou no Supabase
+    const ID_DO_CLIENTE_CORINGA = "3fd8009d-b6b9-4b7b-a6b0-3d59e07303ec";
 
+    // Se for avulso, envia o ID do Coringa para não dar erro de coluna nula. Se não, envia o ID real.
+    const finalClientIdParaOBanco = isAvulso
+      ? ID_DO_CLIENTE_CORINGA
+      : manualClientId;
+
+    let finalPrice = 0;
     let finalServiceTag = manualService;
     let planId = null;
 
@@ -1528,10 +1536,10 @@ export default function BarbeiroPage() {
       const svc = servicesList.find((s) => s.name === manualService);
       finalPrice = svc ? svc.price : 0;
       if (isAvulso)
+        // Adiciona o nome do avulso direto no nome do serviço para aparecer na agenda
         finalServiceTag = `MANUAL: ${manualCustomer} - ${manualService}`;
     }
 
-    // Se estiver ativo, repete X semanas. Senão, faz só 1.
     const loops = isRecurring ? parseInt(recurringWeeks) : 1;
     const appointmentsToInsert = [];
 
@@ -1539,7 +1547,7 @@ export default function BarbeiroPage() {
       const nextDate = getNextWeekDate(manualDate, i);
       appointmentsToInsert.push({
         barber_id: barberId,
-        client_id: manualClientId !== "AVULSO" ? manualClientId : null,
+        client_id: finalClientIdParaOBanco,
         client_plan_id: planId,
         date: nextDate,
         time: manualTime,
@@ -1549,9 +1557,17 @@ export default function BarbeiroPage() {
       });
     }
 
+    // 🛡️ TRAVA DA VERDADE (Evita falso positivo)
     const { error } = await supabase
       .from("appointments")
       .insert(appointmentsToInsert);
+
+    if (error) {
+      console.error("Erro do Supabase ao agendar:", error);
+      alert("❌ O sistema barrou o agendamento: " + error.message);
+      setIsSaving(false);
+      return; // Aborta a missão, o cliente NÃO foi agendado
+    }
 
     // Lógica para debitar os cortes do plano
     if (usePlan && planId && manualActivePlan) {
@@ -1561,16 +1577,10 @@ export default function BarbeiroPage() {
           cuts_used: (manualActivePlan.cuts_used || 0) + loops,
         })
         .eq("id", planId);
-    }
-
-    if (error) {
-      console.error("Erro ao debitar corte:", error);
-      alert("Agendamento criado, mas erro ao atualizar o plano!");
-    } else {
       console.log("Corte debitado com sucesso!");
     }
 
-    // Limpeza e recarga dos dados
+    // Limpeza e recarga dos dados só acontece se der sucesso
     setManualClientId("AVULSO");
     setManualCustomer("");
     setManualService("");
@@ -1579,7 +1589,8 @@ export default function BarbeiroPage() {
     setRecurringWeeks("4");
     loadAppts();
     loadFinancesAndGoals();
-    alert("Agendamento confirmado e corte debitado!");
+    setIsSaving(false);
+    alert("✅ Agendamento confirmado com sucesso!");
   }
 
   const NavButton = ({ icon: Icon, label, tabId }: any) => (
@@ -2085,7 +2096,7 @@ export default function BarbeiroPage() {
                     // Lógica para definir o preço automaticamente
                     if (s.startsWith("PLANO:")) {
                       setManualPrice("R$ 0,00");
-                      setUsePlan(true); 
+                      setUsePlan(true);
                     } else {
                       setUsePlan(false);
                       const sD = servicesList.find((sv) => sv.name === s);
@@ -4056,8 +4067,8 @@ export default function BarbeiroPage() {
           <div className="flex flex-col gap-1 border-t border-zinc-800/60 pt-4 mt-2">
             <button
               onClick={() => {
-                setIsProfileOpen(false); 
-                router.push("/atualizar-senha"); 
+                setIsProfileOpen(false);
+                router.push("/atualizar-senha");
               }}
               className="w-full py-3.5 rounded-2xl bg-zinc-900 border border-zinc-800 hover:border-amber-400 text-white text-xs font-bold uppercase tracking-widest transition-all flex items-center justify-center gap-2"
             >
