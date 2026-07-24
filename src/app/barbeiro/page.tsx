@@ -65,7 +65,7 @@ const getServiceDuration = (
   serviceString: string,
   servicesList: any[],
 ): number => {
-  if (!serviceString) return 60; // Fallback absoluto de segurança
+  if (!serviceString) return 60;
 
   let cleanName = serviceString.trim();
 
@@ -79,7 +79,7 @@ const getServiceDuration = (
 
   const nameLower = cleanName.toLowerCase();
 
-  // 2. TRAVA DE ANÁLISE SEMÂNTICA
+  // TRAVA DE ANÁLISE SEMÂNTICA
   const temCabelo = nameLower.includes("cabelo") || nameLower.includes("corte");
   const temBarba = nameLower.includes("barba");
   const temQuimica =
@@ -305,34 +305,23 @@ export default function BarbeiroPage() {
 
   const [goals, setGoals] = useState<BarberGoal[]>([]);
 
-  const [finances, setFinances] = useState({
-    hoje: 0,
-    ontem: 0,
-    mesAtual: 0,
-    mesPassado: 0,
-    total: 0,
+  // --- ESTADOS FINANCEIROS ---
+  const [transactions, setTransactions] = useState<any[]>([]);
+  const [financeKPIs, setFinanceKPIs] = useState({
+    entradasMes: 0,
+    saidasMes: 0,
+    saldoMes: 0,
     clientesHoje: 0,
-    clientesMesAtual: 0,
-    clientesMesPassado: 0,
-    globalHoje: 0,
-    globalOntem: 0,
-    globalMesAtual: 0,
-    globalMesPassado: 0,
-    globalClientesHoje: 0,
-    globalClientesMesAtual: 0,
-    globalClientesMesPassado: 0,
-    globalServicosMesAtual: 0,
-    globalProdutosMesAtual: 0,
-    chartDiario: [] as any[],
+    clientesMes: 0,
     chartMensal: [] as any[],
-    chartAnual: [] as any[],
-    maxGenDiario: 1,
-    maxGenMensal: 1,
-    maxGenAnual: 1,
-    maxIndDiario: 1,
-    maxIndMensal: 1,
-    maxIndAnual: 1,
+    maxMensal: 1,
   });
+  const [isTransModalOpen, setIsTransModalOpen] = useState(false);
+  const [transType, setTransType] = useState<"entrada" | "saida">("entrada");
+  const [transDesc, setTransDesc] = useState("");
+  const [transAmount, setTransAmount] = useState("");
+  const [transDate, setTransDate] = useState(todayStr);
+  const [isSavingTrans, setIsSavingTrans] = useState(false);
 
   const [isGoalModalOpen, setIsGoalModalOpen] = useState(false);
   const [goalTitle, setGoalTitle] = useState("");
@@ -570,6 +559,7 @@ export default function BarbeiroPage() {
 
   async function loadFinancesAndGoals() {
     if (!barberId) return;
+
     const { data: gData } = await supabase
       .from("barber_goals")
       .select("*")
@@ -579,259 +569,121 @@ export default function BarbeiroPage() {
 
     const now = new Date();
     const currentYear = now.getFullYear();
-    const currentMonthIdx = now.getMonth();
+    const currentMonth = String(now.getMonth() + 1).padStart(2, "0");
+    const firstDayThisMonth = `${currentYear}-${currentMonth}-01`;
+    const firstDayThisYear = `${currentYear}-01-01`; 
 
-    const firstDayThisMonth = getLocalDateStr(
-      new Date(currentYear, currentMonthIdx, 1),
-    );
-    const firstDayLastMonth = getLocalDateStr(
-      new Date(currentYear, currentMonthIdx - 1, 1),
-    );
-    const lastDayLastMonth = getLocalDateStr(
-      new Date(currentYear, currentMonthIdx, 0),
-    );
-    const today = getLocalDateStr(now);
-    const yesterdayDate = new Date(now);
-    yesterdayDate.setDate(yesterdayDate.getDate() - 1);
-    const yesterdayStr = getLocalDateStr(yesterdayDate);
+    const { data: transData } = await supabase
+      .from("financial_transactions")
+      .select("*")
+      .eq("barber_id", barberId)
+      .gte("reference_date", firstDayThisYear)
+      .order("reference_date", { ascending: false });
 
-    const last7DaysDates = Array.from({ length: 7 }, (_, i) => {
-      const d = new Date(now);
-      d.setDate(d.getDate() - (6 - i));
-      return getLocalDateStr(d);
-    });
-    const last5Years = Array.from({ length: 5 }, (_, i) => currentYear - 4 + i);
+    const trans = transData || [];
+    setTransactions(trans.filter((t) => t.reference_date >= firstDayThisMonth));
 
-    let chartDiario = last7DaysDates.map((d) => ({
-      name: d.split("-").reverse().slice(0, 2).join("/"),
-      date: d,
-      ind: 0,
-      gen: 0,
-      indClients: 0,
-      genClients: 0,
-    }));
-    let chartMensal = [
-      "Jan",
-      "Fev",
-      "Mar",
-      "Abr",
-      "Mai",
-      "Jun",
-      "Jul",
-      "Ago",
-      "Set",
-      "Out",
-      "Nov",
-      "Dez",
-    ].map((m) => ({ name: m, ind: 0, gen: 0, indClients: 0, genClients: 0 }));
-    let chartAnual = last5Years.map((y) => ({
-      name: String(y),
-      year: y,
-      ind: 0,
-      gen: 0,
-      indClients: 0,
-      genClients: 0,
-    }));
-
-    // Buscando todos os planos (incluindo expired) para garantir a integridade do caixa histórico
-    const { data: allPlans } = await supabase
-      .from("client_plans")
-      .select("price_paid, created_at, start_date, barber_id");
-    const { data: allAppts } = await supabase
+    const { data: apptsData } = await supabase
       .from("appointments")
-      .select("price_applied, date, time, barber_id, status, service")
+      .select("id, date, time, status, service")
+      .eq("barber_id", barberId)
+      .gte("date", firstDayThisYear)
       .in("status", ["confirmed", "completed"]);
-    const { data: allProductSales } = await supabase
-      .from("product_sales")
-      .select("total_price, created_at, barber_id");
-    const { data: allServices } = await supabase
-      .from("services")
-      .select("name, price");
 
-    let hoje = 0,
-      ontem = 0,
-      mesAtual = 0,
-      mesPassado = 0,
-      total = 0,
-      clientesHoje = 0,
-      clientesMesAtual = 0,
-      clientesMesPassado = 0;
-    let globalHoje = 0,
-      globalOntem = 0,
-      globalMesAtual = 0,
-      globalMesPassado = 0,
-      globalClientesHoje = 0,
-      globalClientesMesAtual = 0,
-      globalClientesMesPassado = 0;
-    let globalServicosMesAtual = 0,
-      globalProdutosMesAtual = 0;
+    const appts = apptsData || [];
 
-    const processItem = (
-      val: number,
-      dateStr: string,
-      isBlock: boolean,
-      isProduct: boolean,
-      itemBarberId: string,
-      isPlanSale: boolean = false,
-    ) => {
-      const [ay, am, ad] = dateStr.split("-");
-      const aYear = parseInt(ay);
-      const aMonthIdx = parseInt(am) - 1;
+    let chartData = [
+      { name: "Jan", receita: 0, clientes: 0 },
+      { name: "Fev", receita: 0, clientes: 0 },
+      { name: "Mar", receita: 0, clientes: 0 },
+      { name: "Abr", receita: 0, clientes: 0 },
+      { name: "Mai", receita: 0, clientes: 0 },
+      { name: "Jun", receita: 0, clientes: 0 },
+      { name: "Jul", receita: 0, clientes: 0 },
+      { name: "Ago", receita: 0, clientes: 0 },
+      { name: "Set", receita: 0, clientes: 0 },
+      { name: "Out", receita: 0, clientes: 0 },
+      { name: "Nov", receita: 0, clientes: 0 },
+      { name: "Dez", receita: 0, clientes: 0 },
+    ];
 
-      const dayMatch = chartDiario.find((d) => d.date === dateStr);
-      if (dayMatch) {
-        dayMatch.gen += val;
-        // Só conta como cliente se NÃO for bloqueio, produto ou venda de plano
-        if (!isBlock && !isProduct && !isPlanSale) dayMatch.genClients += 1;
-        if (itemBarberId === barberId) {
-          dayMatch.ind += val;
-          if (!isBlock && !isProduct && !isPlanSale) dayMatch.indClients += 1;
-        }
+    let inMes = 0;
+    let outMes = 0;
+
+    trans.forEach((t) => {
+      const tMonth = parseInt(t.reference_date.split("-")[1]) - 1;
+
+      if (t.type === "entrada") {
+        chartData[tMonth].receita += Number(t.amount);
       }
 
-      if (aYear === currentYear) {
-        chartMensal[aMonthIdx].gen += val;
-        if (!isBlock && !isProduct && !isPlanSale)
-          chartMensal[aMonthIdx].genClients += 1;
-        if (itemBarberId === barberId) {
-          chartMensal[aMonthIdx].ind += val;
-          if (!isBlock && !isProduct && !isPlanSale)
-            chartMensal[aMonthIdx].indClients += 1;
-        }
+      if (t.reference_date >= firstDayThisMonth) {
+        if (t.type === "entrada") inMes += Number(t.amount);
+        if (t.type === "saida") outMes += Number(t.amount);
       }
-
-      const yearMatch = chartAnual.find((y) => y.year === aYear);
-      if (yearMatch) {
-        yearMatch.gen += val;
-        if (!isBlock && !isProduct && !isPlanSale) yearMatch.genClients += 1;
-        if (itemBarberId === barberId) {
-          yearMatch.ind += val;
-          if (!isBlock && !isProduct && !isPlanSale) yearMatch.indClients += 1;
-        }
-      }
-
-      if (itemBarberId === barberId) {
-        total += val;
-        if (dateStr === today) {
-          hoje += val;
-          if (!isBlock && !isProduct && !isPlanSale) clientesHoje++;
-        }
-        if (dateStr === yesterdayStr) {
-          ontem += val;
-        }
-        if (dateStr >= firstDayThisMonth && dateStr <= today) {
-          mesAtual += val;
-          if (!isBlock && !isProduct && !isPlanSale) clientesMesAtual++;
-        }
-        if (dateStr >= firstDayLastMonth && dateStr <= lastDayLastMonth) {
-          mesPassado += val;
-          if (!isBlock && !isProduct && !isPlanSale) clientesMesPassado++;
-        }
-      }
-
-      if (dateStr === today) {
-        globalHoje += val;
-        if (!isBlock && !isProduct && !isPlanSale) globalClientesHoje++;
-      }
-      if (dateStr === yesterdayStr) {
-        globalOntem += val;
-      }
-      if (dateStr >= firstDayThisMonth && dateStr <= today) {
-        globalMesAtual += val;
-        if (!isBlock && !isProduct && !isPlanSale) globalClientesMesAtual++;
-        if (isProduct) globalProdutosMesAtual += val;
-      }
-      if (dateStr >= firstDayLastMonth && dateStr <= lastDayLastMonth) {
-        globalMesPassado += val;
-        if (!isBlock && !isProduct && !isPlanSale) globalClientesMesPassado++;
-      }
-    };
-
-    if (allPlans) {
-      allPlans.forEach((p) => {
-        const planDate = p.start_date
-          ? p.start_date.split("T")[0]
-          : p.created_at.split("T")[0];
-        processItem(
-          Number(p.price_paid),
-          planDate,
-          false,
-          false,
-          p.barber_id,
-          true,
-        );
-      });
-    }
-
-    if (allProductSales) {
-      allProductSales.forEach((s) => {
-        processItem(
-          Number(s.total_price || 0),
-          s.created_at.split("T")[0],
-          false,
-          true,
-          s.barber_id,
-        );
-      });
-    }
-
-    if (allAppts) {
-      allAppts.forEach((a) => {
-        const isBlock = a.service.startsWith("BLOQUEIO");
-        const isPlano = a.service.startsWith("PLANO:");
-        const isAdmin = a.service.startsWith("ADMIN:");
-        const timeHasPassed = isPast(a.date, a.time);
-        const shouldCountRevenue =
-          a.status === "completed" ||
-          (a.status === "confirmed" && timeHasPassed);
-
-        let val = 0;
-        if (!isBlock && !isPlano && !isAdmin) {
-          if (a.price_applied !== null && a.price_applied !== undefined) {
-            val = Number(a.price_applied);
-          } else {
-            let svcName = a.service;
-            if (svcName.startsWith("MANUAL:"))
-              svcName = svcName.split(" - ")[1] || svcName;
-            const svc = (allServices || []).find((s) => s.name === svcName);
-            val = svc ? svc.price : 0;
-          }
-        }
-        if (shouldCountRevenue) {
-          processItem(val, a.date, isBlock, false, a.barber_id);
-        }
-      });
-    }
-
-    globalServicosMesAtual = globalMesAtual - globalProdutosMesAtual;
-    setFinances({
-      hoje,
-      ontem,
-      mesAtual,
-      mesPassado,
-      total,
-      clientesHoje,
-      clientesMesAtual,
-      clientesMesPassado,
-      globalHoje,
-      globalOntem,
-      globalMesAtual,
-      globalMesPassado,
-      globalClientesHoje,
-      globalClientesMesAtual,
-      globalClientesMesPassado,
-      globalServicosMesAtual,
-      globalProdutosMesAtual,
-      chartDiario,
-      chartMensal,
-      chartAnual,
-      maxGenDiario: Math.max(...chartDiario.map((d) => d.gen), 1),
-      maxGenMensal: Math.max(...chartMensal.map((d) => d.gen), 1),
-      maxGenAnual: Math.max(...chartAnual.map((d) => d.gen), 1),
-      maxIndDiario: Math.max(...chartDiario.map((d) => d.ind), 1),
-      maxIndMensal: Math.max(...chartMensal.map((d) => d.ind), 1),
-      maxIndAnual: Math.max(...chartAnual.map((d) => d.ind), 1),
     });
+
+    let cHoje = 0;
+    let cMes = 0;
+
+    appts.forEach((a) => {
+      const aMonth = parseInt(a.date.split("-")[1]) - 1;
+      const timeHasPassed = isPast(a.date, a.time);
+      const isCompleted =
+        a.status === "completed" || (a.status === "confirmed" && timeHasPassed);
+
+      if (
+        isCompleted &&
+        a.service &&
+        !a.service.startsWith("BLOQUEIO") &&
+        !a.service.startsWith("ADMIN:")
+      ) {
+        chartData[aMonth].clientes++; 
+
+        if (a.date >= firstDayThisMonth) {
+          cMes++;
+          if (a.date === todayStr) cHoje++;
+        }
+      }
+    });
+
+    const maxReceita = Math.max(...chartData.map((d) => d.receita), 1);
+
+    setFinanceKPIs({
+      entradasMes: inMes,
+      saidasMes: outMes,
+      saldoMes: inMes - outMes,
+      clientesHoje: cHoje,
+      clientesMes: cMes,
+      chartMensal: chartData,
+      maxMensal: maxReceita,
+    });
+  }
+
+  async function handleSaveTransaction() {
+    if (!transDesc || !transAmount || !transDate) {
+      alert("Preencha descrição, valor e data.");
+      return;
+    }
+    setIsSavingTrans(true);
+    const { error } = await supabase.from("financial_transactions").insert({
+      barber_id: barberId,
+      type: transType,
+      description: transDesc,
+      amount: parseFloat(transAmount.replace(",", ".")),
+      reference_date: transDate,
+    });
+
+    if (error) {
+      alert("Erro ao salvar lançamento: " + error.message);
+    } else {
+      setIsTransModalOpen(false);
+      setTransDesc("");
+      setTransAmount("");
+      setTransDate(todayStr);
+      loadFinancesAndGoals();
+    }
+    setIsSavingTrans(false);
   }
 
   async function loadCRMData() {
@@ -1030,7 +882,7 @@ export default function BarbeiroPage() {
     if (!newBlockDate || !barberId) return;
     setLoadingBlock(true);
 
-    // 1. Verifica se vai repetir
+    // Verifica se vai repetir
     const loops = isRecurring ? parseInt(recurringWeeks) : 1;
 
     if (isFullDay) {
@@ -1533,8 +1385,6 @@ export default function BarbeiroPage() {
     setIsSaving(true);
     console.log("Iniciando salvamento...");
 
-    // === 🚨 O SEGREDO DO CORINGA ESTÁ AQUI 🚨 ===
-    // Cole aqui o ID do "Cliente Avulso" que você criou no Supabase
     const ID_DO_CLIENTE_CORINGA = "3fd8009d-b6b9-4b7b-a6b0-3d59e07303ec";
 
     // Se for avulso, envia o ID do Coringa para não dar erro de coluna nula. Se não, envia o ID real.
@@ -1580,7 +1430,6 @@ export default function BarbeiroPage() {
       });
     }
 
-    // 🛡️ TRAVA DA VERDADE (Evita falso positivo)
     const { error } = await supabase
       .from("appointments")
       .insert(appointmentsToInsert);
@@ -1589,7 +1438,7 @@ export default function BarbeiroPage() {
       console.error("Erro do Supabase ao agendar:", error);
       alert("❌ O sistema barrou o agendamento: " + error.message);
       setIsSaving(false);
-      return; // Aborta a missão, o cliente NÃO foi agendado
+      return;
     }
 
     // Lógica para debitar os cortes do plano
@@ -2271,303 +2120,189 @@ export default function BarbeiroPage() {
           </div>
         )}
 
-        {/* --- FINANÇAS (BI TURBINADO - NÍVEL TRINKS) --- */}
+        {/* --- FINANÇAS (BI MANUAL TURBINADO) --- */}
         {activeTab === "financeiro" && (
           <div className="flex flex-col gap-6 animate-in fade-in duration-500">
-            <header className="mb-2">
-              <h1 className="text-2xl font-black italic uppercase">
-                Desempenho
-              </h1>
-              <p className="text-zinc-500 text-sm mt-1">
-                Visão geral do negócio e suas metas.
-              </p>
+            <header className="flex justify-between items-end mb-2">
+              <div>
+                <h1 className="text-2xl font-black italic uppercase">
+                  Meu Caixa
+                </h1>
+                <p className="text-zinc-500 text-sm mt-1">
+                  Fechamentos e Despesas
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => {
+                    setTransType("saida");
+                    setIsTransModalOpen(true);
+                  }}
+                  className="bg-red-500/10 text-red-500 p-3 rounded-xl hover:bg-red-500 hover:text-white transition-colors border border-red-500/20"
+                >
+                  <TrendingDown size={20} strokeWidth={2.5} />
+                </button>
+                <button
+                  onClick={() => {
+                    setTransType("entrada");
+                    setIsTransModalOpen(true);
+                  }}
+                  className="bg-emerald-500/10 text-emerald-400 p-3 rounded-xl hover:bg-emerald-500 hover:text-zinc-950 transition-colors border border-emerald-500/20"
+                >
+                  <PlusCircle size={20} strokeWidth={2.5} />
+                </button>
+              </div>
             </header>
 
-            {/* VISÃO GERAL (BARBEARIA) */}
-            <section className="bg-zinc-900 border border-zinc-800 rounded-3xl p-5 flex flex-col gap-4">
-              <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
-                <div className="flex items-center gap-2">
-                  <BarChart3 className="text-amber-400" size={18} />
-                  <h3 className="text-[10px] font-bold text-zinc-300 uppercase tracking-wider">
-                    Visão da Barbearia
-                  </h3>
-                </div>
-                <div className="flex bg-zinc-950 border border-zinc-800 rounded-lg p-0.5">
-                  <button
-                    onClick={() => setChartViewGlobal("diario")}
-                    className={`px-2 py-1 text-[9px] font-bold rounded-md uppercase transition-all ${chartViewGlobal === "diario" ? "bg-zinc-800 text-amber-400" : "text-zinc-500"}`}
-                  >
-                    Diário
-                  </button>
-                  <button
-                    onClick={() => setChartViewGlobal("mensal")}
-                    className={`px-2 py-1 text-[9px] font-bold rounded-md uppercase transition-all ${chartViewGlobal === "mensal" ? "bg-zinc-800 text-amber-400" : "text-zinc-500"}`}
-                  >
-                    Mensal
-                  </button>
-                  <button
-                    onClick={() => setChartViewGlobal("anual")}
-                    className={`px-2 py-1 text-[9px] font-bold rounded-md uppercase transition-all ${chartViewGlobal === "anual" ? "bg-zinc-800 text-amber-400" : "text-zinc-500"}`}
-                  >
-                    Anual
-                  </button>
-                </div>
+            {/* CARDS DE RESUMO (BI) */}
+            <div className="grid grid-cols-2 gap-4">
+              <div className="bg-zinc-900 border border-zinc-800 p-5 rounded-3xl flex flex-col gap-2 shadow-lg">
+                <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider flex items-center gap-1.5">
+                  <Wallet size={12} className="text-amber-400" /> Saldo Líquido
+                  (Mês)
+                </span>
+                <span
+                  className={`text-2xl font-black ${financeKPIs.saldoMes >= 0 ? "text-emerald-400" : "text-red-400"}`}
+                >
+                  R$ {financeKPIs.saldoMes.toFixed(2).replace(".", ",")}
+                </span>
               </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <p className="text-[10px] text-zinc-500 font-bold uppercase mb-1">
-                    Faturamento Geral
-                  </p>
-                  <p className="text-xl font-black text-white">
-                    R$ {finances.globalMesAtual.toFixed(2).replace(".", ",")}{" "}
-                    <span className="text-[10px] font-normal text-zinc-500 lowercase">
-                      /mês
-                    </span>
-                  </p>
-                  <div className="flex flex-col gap-1 mt-1">
-                    <span className="text-[10px] text-zinc-400 font-bold uppercase mt-1">
-                      Hoje:{" "}
-                      <strong className="text-emerald-400">
-                        R$ {finances.globalHoje.toFixed(2).replace(".", ",")}
-                      </strong>
-                    </span>
-                  </div>
-                </div>
-                <div>
-                  <p className="text-[10px] text-zinc-500 font-bold uppercase mb-1">
-                    Total Atendimentos
-                  </p>
-                  <p className="text-xl font-black text-white">
-                    {finances.globalClientesMesAtual}{" "}
-                    <span className="text-[10px] font-normal text-zinc-500 lowercase">
-                      /mês
-                    </span>
-                  </p>
-                  <div className="flex flex-col gap-1 mt-1">
-                    <span className="text-[10px] text-zinc-400 font-bold uppercase mt-1">
-                      Hoje:{" "}
-                      <strong className="text-emerald-400">
-                        {finances.globalClientesHoje}
-                      </strong>
-                    </span>
-                  </div>
-                </div>
+              <div className="bg-zinc-900 border border-zinc-800 p-5 rounded-3xl flex flex-col gap-2 shadow-lg">
+                <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider flex items-center gap-1.5">
+                  <Scissors size={12} className="text-amber-400" /> Clientes
+                  Atendidos
+                </span>
+                <span className="text-2xl font-black text-white">
+                  {financeKPIs.clientesMes}{" "}
+                  <span className="text-[10px] text-amber-400 lowercase font-normal">
+                    ({financeKPIs.clientesHoje} hoje)
+                  </span>
+                </span>
               </div>
+            </div>
 
-              {/* Gráfico Dinâmico */}
-              <div className="flex justify-between gap-1 h-32 mt-4 pt-4 border-t border-zinc-800/60">
-                {(() => {
-                  const activeChart =
-                    chartViewGlobal === "diario"
-                      ? finances.chartDiario
-                      : chartViewGlobal === "mensal"
-                        ? finances.chartMensal
-                        : finances.chartAnual;
-                  const activeMax =
-                    chartViewGlobal === "diario"
-                      ? finances.maxGenDiario
-                      : chartViewGlobal === "mensal"
-                        ? finances.maxGenMensal
-                        : finances.maxGenAnual;
-
-                  return activeChart.map((data, idx) => {
-                    const isCurrent =
-                      chartViewGlobal === "diario"
-                        ? idx === 6
-                        : chartViewGlobal === "mensal"
-                          ? idx === new Date().getMonth()
-                          : data.year === new Date().getFullYear();
-                    const height = `${(data.gen / activeMax) * 100}%`;
-                    const barColor = isCurrent
-                      ? "bg-amber-400"
-                      : data.gen > 0
-                        ? "bg-zinc-600 group-hover:bg-amber-400/50"
-                        : "bg-zinc-800";
-
-                    return (
-                      <div
-                        key={data.name}
-                        className="flex flex-col items-center justify-end gap-1 flex-1 group h-full"
-                      >
-                        <div className="w-full relative h-full flex flex-col justify-end">
-                          <div
-                            className={`w-full rounded-t-sm transition-all duration-500 ${barColor}`}
-                            style={{ height: data.gen > 0 ? height : "2px" }}
-                          >
-                            <div className="absolute -top-11 left-1/2 -translate-x-1/2 bg-zinc-800 border border-zinc-700 text-white text-[9px] font-bold px-2 py-1.5 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10 flex flex-col items-center gap-0.5 shadow-xl">
-                              <span className="whitespace-nowrap text-amber-400">
-                                R$ {data.gen.toFixed(0)}
-                              </span>
-                              <span className="whitespace-nowrap text-zinc-300 text-[8px]">
-                                {data.genClients} cortes
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-                        <span
-                          className={`text-[8px] font-bold uppercase ${isCurrent ? "text-amber-400" : "text-zinc-600"}`}
-                        >
-                          {data.name}
-                        </span>
-                      </div>
-                    );
-                  });
-                })()}
+            <div className="grid grid-cols-2 gap-4">
+              <div className="bg-zinc-950 border border-emerald-500/20 p-4 rounded-2xl flex flex-col">
+                <span className="text-[10px] text-emerald-500 font-bold uppercase mb-1">
+                  Entradas Acumuladas
+                </span>
+                <span className="text-lg font-bold text-white">
+                  R$ {financeKPIs.entradasMes.toFixed(2).replace(".", ",")}
+                </span>
               </div>
-            </section>
-
-            {/* SEUS NÚMEROS (INDIVIDUAL) */}
-            <section className="flex flex-col gap-4">
-              <div className="flex justify-between items-center ml-2">
-                <h3 className="text-[10px] font-bold text-zinc-500 uppercase tracking-[0.2em]">
-                  Seus Números
-                </h3>
-                <div className="flex bg-zinc-900 border border-zinc-800 rounded-lg p-0.5 shadow-lg">
-                  <button
-                    onClick={() => setChartView("diario")}
-                    className={`px-2 py-1 text-[9px] font-bold rounded-md uppercase transition-all ${chartView === "diario" ? "bg-zinc-800 text-amber-400" : "text-zinc-500"}`}
-                  >
-                    Diário
-                  </button>
-                  <button
-                    onClick={() => setChartView("mensal")}
-                    className={`px-2 py-1 text-[9px] font-bold rounded-md uppercase transition-all ${chartView === "mensal" ? "bg-zinc-800 text-amber-400" : "text-zinc-500"}`}
-                  >
-                    Mensal
-                  </button>
-                  <button
-                    onClick={() => setChartView("anual")}
-                    className={`px-2 py-1 text-[9px] font-bold rounded-md uppercase transition-all ${chartView === "anual" ? "bg-zinc-800 text-amber-400" : "text-zinc-500"}`}
-                  >
-                    Anual
-                  </button>
-                </div>
+              <div className="bg-zinc-950 border border-red-500/20 p-4 rounded-2xl flex flex-col">
+                <span className="text-[10px] text-red-500 font-bold uppercase mb-1">
+                  Despesas / Saídas
+                </span>
+                <span className="text-lg font-bold text-white">
+                  R$ {financeKPIs.saidasMes.toFixed(2).replace(".", ",")}
+                </span>
               </div>
+            </div>
+            {/* GRÁFICO ANUAL */}
+            <section className="bg-zinc-900 border border-zinc-800 p-5 rounded-3xl flex flex-col mt-2 shadow-lg">
+              <h3 className="text-[10px] font-bold text-zinc-500 uppercase tracking-[0.2em] mb-4">
+                Sua Evolução Anual
+              </h3>
+              <div className="flex justify-between gap-1 h-32">
+                {financeKPIs.chartMensal?.map((data, idx) => {
+                  const isCurrent = idx === new Date().getMonth();
+                  const height = `${(data.receita / financeKPIs.maxMensal) * 100}%`;
+                  const barColor = isCurrent
+                    ? "bg-amber-400"
+                    : data.receita > 0
+                      ? "bg-zinc-600 group-hover:bg-amber-400/50"
+                      : "bg-zinc-800";
 
-              <div className="grid grid-cols-2 gap-4">
-                <div className="bg-zinc-900 border border-zinc-800 p-5 rounded-3xl flex flex-col gap-1">
-                  <div className="flex items-center gap-2 text-zinc-500 mb-1">
-                    <DollarSign size={16} className="text-amber-400" />
-                    <span className="text-xs font-bold uppercase tracking-wider">
-                      Receita
-                    </span>
-                  </div>
-                  <div className="text-2xl font-black text-white">
-                    R$ {finances.mesAtual.toFixed(2).replace(".", ",")}{" "}
-                    <span className="text-[10px] font-normal text-zinc-500 lowercase">
-                      /mês
-                    </span>
-                  </div>
-                  <div className="flex flex-col gap-1 mt-1 border-t border-zinc-800/60 pt-2">
-                    <span className="text-[10px] text-zinc-400 font-bold uppercase">
-                      Hoje:{" "}
-                      <strong className="text-emerald-400">
-                        R$ {finances.hoje.toFixed(2).replace(".", ",")}
-                      </strong>
-                    </span>
-                  </div>
-                </div>
-                <div className="bg-zinc-900 border border-zinc-800 p-5 rounded-3xl flex flex-col gap-1">
-                  <div className="flex items-center gap-2 text-zinc-500 mb-1">
-                    <Scissors size={16} className="text-amber-400" />
-                    <span className="text-xs font-bold uppercase tracking-wider">
-                      Atendidos
-                    </span>
-                  </div>
-                  <div className="text-2xl font-black text-white">
-                    {finances.clientesMesAtual}{" "}
-                    <span className="text-[10px] font-normal text-zinc-500 lowercase">
-                      /mês
-                    </span>
-                  </div>
-                  <div className="flex flex-col gap-1 mt-1 border-t border-zinc-800/60 pt-2">
-                    <span className="text-[10px] text-zinc-400 font-bold uppercase">
-                      Hoje:{" "}
-                      <strong className="text-emerald-400">
-                        {finances.clientesHoje}
-                      </strong>
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Gráfico Individual Dinâmico */}
-              <div className="bg-zinc-900 border border-zinc-800 p-5 rounded-3xl flex flex-col mt-2">
-                <h3 className="text-[10px] font-bold text-zinc-500 uppercase tracking-[0.2em] mb-4">
-                  Sua Evolução ({chartView})
-                </h3>
-                <div className="flex justify-between gap-1 h-32">
-                  {(() => {
-                    const activeChart =
-                      chartView === "diario"
-                        ? finances.chartDiario
-                        : chartView === "mensal"
-                          ? finances.chartMensal
-                          : finances.chartAnual;
-                    const activeMax =
-                      chartView === "diario"
-                        ? finances.maxIndDiario
-                        : chartView === "mensal"
-                          ? finances.maxIndMensal
-                          : finances.maxIndAnual;
-
-                    return activeChart.map((data, idx) => {
-                      const isCurrent =
-                        chartView === "diario"
-                          ? idx === 6
-                          : chartView === "mensal"
-                            ? idx === new Date().getMonth()
-                            : data.year === new Date().getFullYear();
-                      const height = `${(data.ind / activeMax) * 100}%`;
-                      const barColor = isCurrent
-                        ? "bg-amber-400"
-                        : data.ind > 0
-                          ? "bg-zinc-600 group-hover:bg-amber-400/50"
-                          : "bg-zinc-800";
-
-                      return (
+                  return (
+                    <div
+                      key={data.name}
+                      className="flex flex-col items-center justify-end gap-1 flex-1 group h-full cursor-pointer relative"
+                    >
+                      <div className="w-full relative h-full flex flex-col justify-end">
                         <div
-                          key={data.name}
-                          className="flex flex-col items-center justify-end gap-1 flex-1 group h-full"
+                          className={`w-full rounded-t-sm transition-all duration-500 ${barColor}`}
+                          style={{ height: data.receita > 0 ? height : "2px" }}
                         >
-                          <div className="w-full relative h-full flex flex-col justify-end">
-                            <div
-                              className={`w-full rounded-t-sm transition-all duration-500 ${barColor}`}
-                              style={{ height: data.ind > 0 ? height : "2px" }}
-                            >
-                              <div className="absolute -top-11 left-1/2 -translate-x-1/2 bg-zinc-800 border border-zinc-700 text-white text-[9px] font-bold px-2 py-1.5 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10 flex flex-col items-center gap-0.5 shadow-xl">
-                                <span className="whitespace-nowrap text-amber-400">
-                                  R$ {data.ind.toFixed(0)}
-                                </span>
-                                <span className="whitespace-nowrap text-zinc-300 text-[8px]">
-                                  {data.indClients} cortes
-                                </span>
-                              </div>
-                            </div>
+                          {/* TOOLTIP DO TOQUE/MOUSE */}
+                          <div className="absolute -top-12 left-1/2 -translate-x-1/2 bg-zinc-800 border border-zinc-700 text-white text-[9px] font-bold px-3 py-2 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10 flex flex-col items-center gap-0.5 shadow-xl">
+                            <span className="whitespace-nowrap text-amber-400">
+                              R$ {data.receita.toFixed(0)}
+                            </span>
+                            <span className="whitespace-nowrap text-zinc-300 text-[8px]">
+                              {data.clientes} cortes
+                            </span>
                           </div>
-                          <span
-                            className={`text-[8px] font-bold uppercase ${isCurrent ? "text-amber-400" : "text-zinc-600"}`}
-                          >
-                            {data.name}
-                          </span>
                         </div>
-                      );
-                    });
-                  })()}
-                </div>
+                      </div>
+                      <span
+                        className={`text-[8px] font-bold uppercase ${isCurrent ? "text-amber-400" : "text-zinc-600"}`}
+                      >
+                        {data.name}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+            {/* EXTRATO HISTÓRICO */}
+            <section className="mt-2">
+              <h3 className="text-[10px] font-bold text-zinc-500 uppercase tracking-[0.2em] mb-4">
+                Extrato do Mês
+              </h3>
+              <div className="flex flex-col gap-3">
+                {transactions.length === 0 ? (
+                  <div className="text-center py-10 text-zinc-600 italic text-sm border border-zinc-800 rounded-2xl bg-zinc-900/30">
+                    Nenhum lançamento registrado neste mês.
+                  </div>
+                ) : (
+                  transactions.map((t) => (
+                    <div
+                      key={t.id}
+                      className="bg-zinc-900 border border-zinc-800 p-4 rounded-2xl flex justify-between items-center group hover:border-zinc-700 transition-all"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div
+                          className={`p-2.5 rounded-xl ${t.type === "entrada" ? "bg-emerald-500/10 text-emerald-400" : "bg-red-500/10 text-red-400"}`}
+                        >
+                          {t.type === "entrada" ? (
+                            <TrendingUp size={18} />
+                          ) : (
+                            <TrendingDown size={18} />
+                          )}
+                        </div>
+                        <div>
+                          <h4 className="text-sm font-bold text-zinc-100">
+                            {t.description}
+                          </h4>
+                          <p className="text-[10px] text-zinc-500 font-mono mt-0.5">
+                            {t.reference_date.split("-").reverse().join("/")}
+                          </p>
+                        </div>
+                      </div>
+                      <span
+                        className={`font-black text-sm ${t.type === "entrada" ? "text-emerald-400" : "text-red-400"}`}
+                      >
+                        {t.type === "entrada" ? "+" : "-"} R${" "}
+                        {Number(t.amount).toFixed(2).replace(".", ",")}
+                      </span>
+                    </div>
+                  ))
+                )}
               </div>
             </section>
 
-            <section className="mt-2">
+            {/* SUA SEÇÃO DE OBJETIVOS RESGATADA */}
+            <section className="mt-4 border-t border-zinc-800/60 pt-6">
               <div className="flex justify-between items-center mb-4">
                 <h3 className="text-[10px] font-bold text-zinc-500 uppercase tracking-[0.2em]">
                   Seus Objetivos
                 </h3>
                 <button
                   onClick={() => setIsGoalModalOpen(true)}
-                  className="text-amber-400 hover:text-amber-300 transition-colors flex items-center gap-1"
+                  className="text-amber-400 hover:text-amber-300 transition-colors flex items-center gap-1 bg-amber-400/10 px-3 py-1.5 rounded-lg"
                 >
-                  <PlusCircle size={16} />
+                  <Target size={14} />
                   <span className="text-xs font-bold">Nova Meta</span>
                 </button>
               </div>
@@ -2578,8 +2313,9 @@ export default function BarbeiroPage() {
                   </div>
                 ) : (
                   goals.map((goal) => {
+                    // Usa o Saldo Líquido atual para bater a meta!
                     const percentage = Math.min(
-                      (finances.mesAtual / goal.target_value) * 100,
+                      (financeKPIs.saldoMes / goal.target_value) * 100,
                       100,
                     );
                     return (
@@ -2598,8 +2334,8 @@ export default function BarbeiroPage() {
                               </h4>
                               <p className="text-zinc-500 text-xs mt-0.5">
                                 Faltam R${" "}
-                                {(goal.target_value - finances.mesAtual > 0
-                                  ? goal.target_value - finances.mesAtual
+                                {(goal.target_value - financeKPIs.saldoMes > 0
+                                  ? goal.target_value - financeKPIs.saldoMes
                                   : 0
                                 )
                                   .toFixed(2)
@@ -2623,17 +2359,17 @@ export default function BarbeiroPage() {
                         <div className="w-full bg-zinc-800 rounded-full h-3 mb-1 relative z-10 overflow-hidden">
                           <div
                             className="bg-amber-400 h-3 rounded-full transition-all duration-1000 ease-out"
-                            style={{ width: `${percentage}%` }}
+                            style={{ width: `${Math.max(percentage, 0)}%` }}
                           ></div>
                         </div>
                         <div className="flex justify-between text-[10px] font-bold text-zinc-500 uppercase z-10">
-                          <span>Progresso</span>
+                          <span>Progresso Líquido</span>
                           <span
                             className={
                               percentage >= 100 ? "text-emerald-400" : ""
                             }
                           >
-                            {percentage.toFixed(1)}%
+                            {Math.max(percentage, 0).toFixed(1)}%
                           </span>
                         </div>
                       </div>
@@ -3177,6 +2913,67 @@ export default function BarbeiroPage() {
           </div>
         )}
       </div>
+
+      {/* MODAL DE TRANSAÇÃO FINANCEIRA */}
+      {isTransModalOpen && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[100] px-4 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 w-full max-w-sm flex flex-col gap-5">
+            <div>
+              <h3
+                className={`font-bold text-lg italic flex items-center gap-2 ${transType === "entrada" ? "text-emerald-400" : "text-red-400"}`}
+              >
+                {transType === "entrada" ? (
+                  <TrendingUp size={20} />
+                ) : (
+                  <TrendingDown size={20} />
+                )}
+                Nova {transType === "entrada" ? "Entrada" : "Despesa"}
+              </h3>
+            </div>
+            <div className="flex flex-col gap-4">
+              <input
+                type="text"
+                placeholder={
+                  transType === "entrada"
+                    ? "Ex: Fechamento Diário"
+                    : "Ex: Conta de Luz"
+                }
+                value={transDesc}
+                onChange={(e) => setTransDesc(e.target.value)}
+                className="bg-zinc-800 border border-zinc-700 rounded-2xl px-4 py-3 text-white outline-none focus:border-amber-400 transition-colors"
+              />
+              <input
+                type="number"
+                placeholder="Valor (R$)"
+                value={transAmount}
+                onChange={(e) => setTransAmount(e.target.value)}
+                className="bg-zinc-800 border border-zinc-700 rounded-2xl px-4 py-3 text-white outline-none focus:border-amber-400 transition-colors"
+              />
+              <input
+                type="date"
+                value={transDate}
+                onChange={(e) => setTransDate(e.target.value)}
+                className="bg-zinc-800 border border-zinc-700 rounded-2xl px-4 py-3 text-white outline-none [color-scheme:dark] focus:border-amber-400 transition-colors"
+              />
+            </div>
+            <div className="flex gap-3 border-t border-zinc-800 pt-4">
+              <button
+                onClick={() => setIsTransModalOpen(false)}
+                className="flex-1 py-3 text-zinc-400 font-bold text-sm"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleSaveTransaction}
+                disabled={isSavingTrans}
+                className={`flex-1 py-3 text-zinc-950 rounded-xl font-black uppercase text-xs disabled:opacity-50 ${transType === "entrada" ? "bg-emerald-400 hover:bg-emerald-300" : "bg-red-500 hover:bg-red-400"}`}
+              >
+                {isSavingTrans ? "Salvando..." : "Confirmar"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* MODAL NOVO CLIENTE FANTASMA */}
       {isNewClientModalOpen && (

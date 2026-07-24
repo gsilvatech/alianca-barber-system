@@ -61,7 +61,7 @@ const getServiceDuration = (
 
   const nameLower = cleanName.toLowerCase();
 
-  // 2. TRAVA DE ANÁLISE SEMÂNTICA
+  // TRAVA DE ANÁLISE SEMÂNTICA
   const temCabelo = nameLower.includes("cabelo") || nameLower.includes("corte");
   const temBarba = nameLower.includes("barba");
   const temQuimica =
