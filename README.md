@@ -6,7 +6,7 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-007ACC?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 
 > **Status do Projeto:** 🚀 Em Produção (SaaS E2E Completo)
-> **Link do App:** [Acesse a aplicação aqui](https://www.aliancabarberclub.com.br//)
+> **Link do App:** [Acesse a aplicação aqui](https://www.aliancabarberclub.com.br/)
 
 ---
 
