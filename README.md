@@ -6,7 +6,7 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-007ACC?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 
 > **Status do Projeto:** 🚀 Em Produção (SaaS E2E Completo)
-> **Link do App:** [Acesse a aplicação aqui](https://alianca-barber-club-swart.vercel.app/)
+> **Link do App:** [Acesse a aplicação aqui](https://www.aliancabarberclub.com.br//)
 
 ---
 
@@ -57,7 +57,7 @@ Ao contrário de soluções genéricas de agendamento, este software possui um *
 <p align="center">
   <img src="./public/screenshots/telaprincipal-portrait.png" width="30%" alt="Tela Inicial do Cliente" />
   <img src="./public/screenshots/fluxoagendamento.gif" width="30%" alt="Demonstração do Agendamento" />
-  <img src="./public/screenshots/paginabarbeiro.gif" width="30%" alt="Painel BI do Barbeiro" />
+  <img src="./public/screenshots/paginabarbeiro.gif" width="30%" alt="Fluxo da página do Barbeiro" />
 </p>
 
 ---
