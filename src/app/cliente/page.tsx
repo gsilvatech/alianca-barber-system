@@ -54,9 +54,15 @@ const getServiceDuration = (
   if (cleanName.startsWith("MANUAL:")) {
     cleanName = cleanName.split(" - ")[1]?.trim() || cleanName;
   }
-  const isPlan = cleanName.startsWith("PLANO: ");
-  if (isPlan) {
+
+  const isPlanUsage = cleanName.startsWith("PLANO: ");
+  const isPlanAcquisition = cleanName.startsWith("Aquisição de Plano:");
+  const isPlan = isPlanUsage || isPlanAcquisition;
+
+  if (isPlanUsage) {
     cleanName = cleanName.replace("PLANO: ", "").trim();
+  } else if (isPlanAcquisition) {
+    cleanName = cleanName.replace("Aquisição de Plano:", "").trim();
   }
 
   const nameLower = cleanName.toLowerCase();
@@ -111,7 +117,7 @@ export default function ClientePage() {
   const supabase = createClient();
 
   const [activeTab, setActiveTab] = useState<
-    "home" | "historico" | "agendar" | "fidelidade" | "perfil"
+    "home" | "historico" | "agendar" | "planos" | "perfil"
   >("home");
 
   // Dados do Banco
@@ -141,8 +147,41 @@ export default function ClientePage() {
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
 
+  // Estado de erro dos Calendários
+  const [dateError, setDateError] = useState("");
+  const [editDateError, setEditDateError] = useState("");
+
   // CONTROLE DO FLUXO VIP DE RECORRÊNCIA
   const [bookingViaPlan, setBookingViaPlan] = useState(false);
+  const [planToBuy, setPlanToBuy] = useState<{
+    nome: string;
+    preco: number;
+  } | null>(null);
+
+  // --- LÓGICA DA TRAVA DE PLANOS ---
+  let isPlanFullyActive = false;
+  let activePlanBarberName = "";
+
+  if (activePlan) {
+    const sd = activePlan.start_date
+      ? activePlan.start_date.split("T")[0]
+      : activePlan.created_at.split("T")[0];
+    const [py, pm, pd] = sd.split("-").map(Number);
+    const expDate = new Date(py, pm - 1, pd);
+    expDate.setDate(expDate.getDate() + 30);
+    const diffDays = Math.ceil(
+      (expDate.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24),
+    );
+    const remainingCuts = activePlan.cuts_allowed - activePlan.cuts_used;
+
+    // Só trava se ainda tiver cortes disponíveis E o prazo não tiver vencido
+    if (remainingCuts > 0 && diffDays > 0) {
+      isPlanFullyActive = true;
+      activePlanBarberName =
+        barbers.find((b) => b.id === activePlan.barber_id)?.display_name ||
+        "seu barbeiro";
+    }
+  }
 
   const [cancelConfirm, setCancelConfirm] = useState<{
     id: string;
@@ -291,6 +330,9 @@ export default function ClientePage() {
       if (bookingViaPlan && activePlan) {
         appliedPrice = 0;
         finalServiceTag = `PLANO: ${activePlan.plan_name}`;
+      } else if (planToBuy) {
+        appliedPrice = planToBuy.preco;
+        finalServiceTag = `Aquisição de Plano: ${planToBuy.nome}`;
       } else {
         const svcDetails = servicesList.find((s) => s.name === service);
         if (!svcDetails) {
@@ -659,7 +701,14 @@ export default function ClientePage() {
 
   const NavButton = ({ icon: Icon, label, tabId }: any) => (
     <button
-      onClick={() => setActiveTab(tabId)}
+      onClick={() => {
+        setActiveTab(tabId);
+        setPlanToBuy(null);
+        setBookingViaPlan(false);
+        setStep(1);
+        setBarberId("");
+        setService("");
+      }}
       className={`flex flex-col items-center justify-center gap-1 transition-all ${activeTab === tabId ? "text-amber-400 scale-110" : "text-zinc-500 hover:text-zinc-300"}`}
     >
       <Icon size={20} />
@@ -958,6 +1007,11 @@ export default function ClientePage() {
                       setBarberId("");
                       setService("");
                       setStep(1);
+                    } else if (planToBuy) {
+                      setPlanToBuy(null);
+                      setService("");
+                      setBarberId("");
+                      setStep(1);
                     } else {
                       setStep((prev) => prev - 1);
                     }
@@ -1007,6 +1061,7 @@ export default function ClientePage() {
                         return (
                           <button
                             onClick={() => {
+                              setPlanToBuy(null);
                               setBookingViaPlan(true);
                               setBarberId(activePlan.barber_id);
                               setService(`PLANO: ${activePlan.plan_name}`);
@@ -1046,7 +1101,12 @@ export default function ClientePage() {
                         key={b.id}
                         onClick={() => {
                           setBarberId(b.id);
-                          setStep(2);
+                          if (planToBuy) {
+                            setService(`Aquisição de Plano: ${planToBuy.nome}`);
+                            setStep(3);
+                          } else {
+                            setStep(2);
+                          }
                         }}
                         className={`py-4 px-4 rounded-xl text-sm font-bold border transition-all text-left ${barberId === b.id ? "bg-amber-400 text-zinc-950 border-amber-400" : "bg-zinc-800 border-zinc-700 text-white hover:border-amber-400"}`}
                       >
@@ -1105,12 +1165,22 @@ export default function ClientePage() {
                         if (!isDateBlocked(d)) {
                           setDate(d);
                           setTime("");
+                          setDateError("");
                         } else {
-                          alert("Data indisponível na agenda.");
+                          setDate("");
+                          setDateError(
+                            "Domingos ou datas bloqueadas não estão disponíveis.",
+                          );
                         }
                       }}
-                      className="bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-amber-400 transition-colors [color-scheme:dark]"
+                      className={`bg-zinc-800 border ${dateError ? "border-red-500" : "border-zinc-700"} rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-amber-400 transition-colors [color-scheme:dark]`}
                     />
+
+                    {dateError && (
+                      <p className="text-red-400 text-xs font-bold px-1 animate-in fade-in">
+                        ⚠️ {dateError}
+                      </p>
+                    )}
                   </div>
 
                   {date && !isDateBlocked(date) && (
@@ -1182,23 +1252,111 @@ export default function ClientePage() {
           </div>
         )}
 
-        {/* --- FIDELIDADE --- */}
-        {activeTab === "fidelidade" && (
-          <div className="flex flex-col items-center justify-center py-16 gap-4 text-center animate-in fade-in duration-500">
-            <div className="bg-amber-500/10 p-4 rounded-full text-amber-400 animate-bounce">
-              <AlertTriangle size={36} />
-            </div>
-            <div>
-              <h2 className="text-lg font-bold italic text-zinc-100">
-                Clube de Vantagens
+        {/* CLUBE DE VANTAGENS / PLANOS */}
+        {/* CLUBE DE VANTAGENS / PLANOS */}
+        {activeTab === "planos" && (
+          <div className="flex flex-col gap-6 animate-in fade-in duration-500">
+            <div className="text-center mt-2">
+              <h2 className="text-2xl font-black italic text-amber-400">
+                Assinaturas VIP
               </h2>
-              <p className="text-zinc-500 text-sm mt-1 max-w-xs mx-auto">
-                Estamos alinhando com os barbeiros os melhores prêmios.
+              <p className="text-zinc-400 text-xs mt-1">
+                Cabelo e barba impecáveis o mês todo!
               </p>
             </div>
-            <span className="text-xs font-black tracking-widest text-amber-400 bg-zinc-900 border border-amber-500/20 px-4 py-2 rounded-full uppercase animate-pulse">
-              ⚠️ Módulo em Construção
-            </span>
+
+            {/* AVISO DA TRAVA SE TIVER PLANO ATIVO */}
+            {isPlanFullyActive && (
+              <div className="bg-amber-900/20 border border-amber-500/30 rounded-2xl p-4 text-center animate-in zoom-in-95">
+                <p className="text-amber-400 text-sm font-bold">
+                  ⚠️ Você já possui uma assinatura com {activePlanBarberName}!
+                </p>
+                <p className="text-zinc-400 text-xs mt-1.5 leading-relaxed">
+                  Para evitar conflitos, você poderá adquirir um novo plano
+                  apenas quando utilizar todos os cortes ou a assinatura atual
+                  expirar.
+                </p>
+              </div>
+            )}
+
+            <div className="flex flex-col gap-6">
+              {/* Card Plano Cabelo */}
+              <div
+                className={`bg-zinc-900 border border-zinc-800 rounded-3xl p-6 relative overflow-hidden shadow-xl transition-all ${isPlanFullyActive ? "opacity-40 grayscale pointer-events-none" : ""}`}
+              >
+                <div className="absolute top-0 right-0 bg-zinc-800 text-amber-500 text-[10px] font-black px-3 py-1 rounded-bl-xl uppercase tracking-widest">
+                  Essencial
+                </div>
+                <h3 className="text-xl font-bold text-white mb-1">
+                  Plano Cabelo
+                </h3>
+                <div className="flex items-baseline gap-1 mb-4">
+                  <span className="text-3xl font-black text-amber-400">
+                    R$150,00
+                  </span>
+                  <span className="text-xs text-zinc-500 font-bold">/mês</span>
+                </div>
+                <ul className="text-xs text-zinc-400 flex flex-col gap-2 mb-6">
+                  <li className="flex gap-2 items-center">
+                    <span className="text-amber-400">✓</span> 4 Cortes no mês
+                  </li>
+                  <li className="flex gap-2 items-center">
+                    <span className="text-amber-400">✓</span> Desconto em
+                    produtos
+                  </li>
+                </ul>
+                <button
+                  onClick={() => {
+                    setPlanToBuy({ preco: 150, nome: "Plano Cabelo" });
+                    setActiveTab("agendar");
+                    setStep(1);
+                  }}
+                  className="w-full py-3 rounded-xl border border-amber-400 text-amber-400 hover:bg-amber-400 hover:text-zinc-950 font-bold text-sm transition-all"
+                >
+                  Adquirir Plano
+                </button>
+              </div>
+
+              {/* Card Plano Cabelo e Barba */}
+              <div
+                className={`bg-gradient-to-br from-amber-500 to-amber-700 rounded-3xl p-6 relative shadow-[0_10px_30px_rgba(245,158,11,0.2)] transform transition-transform ${isPlanFullyActive ? "opacity-40 grayscale pointer-events-none" : "hover:scale-[1.02]"}`}
+              >
+                <div className="absolute top-0 right-0 bg-zinc-950 text-amber-400 text-[10px] font-black px-3 py-1 rounded-bl-xl uppercase tracking-widest">
+                  Mais Vendido
+                </div>
+                <h3 className="text-xl font-bold text-zinc-950 mb-1">
+                  Plano Cabelo e Barba
+                </h3>
+                <div className="flex items-baseline gap-1 mb-4 text-zinc-950">
+                  <span className="text-3xl font-black">R$200,00</span>
+                  <span className="text-xs font-bold opacity-80">/mês</span>
+                </div>
+                <ul className="text-xs text-zinc-900 font-medium flex flex-col gap-2 mb-6">
+                  <li className="flex gap-2 items-center">
+                    <span className="text-zinc-950 font-black">✓</span> 4 Cortes
+                    no mês
+                  </li>
+                  <li className="flex gap-2 items-center">
+                    <span className="text-zinc-950 font-black">✓</span> 4 Barbas
+                    no mês
+                  </li>
+                  <li className="flex gap-2 items-center">
+                    <span className="text-zinc-950 font-black">✓</span> 1 Bebida
+                    por visita
+                  </li>
+                </ul>
+                <button
+                  onClick={() => {
+                    setPlanToBuy({ preco: 200, nome: "Plano Cabelo e Barba" });
+                    setActiveTab("agendar");
+                    setStep(1);
+                  }}
+                  className="w-full py-3 rounded-xl bg-zinc-950 text-amber-400 hover:bg-zinc-900 font-black text-sm transition-all shadow-lg"
+                >
+                  Adquirir Plano
+                </button>
+              </div>
+            </div>
           </div>
         )}
 
@@ -1339,12 +1497,22 @@ export default function ClientePage() {
                     if (!isEditDateBlocked(d)) {
                       setEditDate(d);
                       setEditTime("");
+                      setEditDateError("");
                     } else {
-                      alert("Data bloqueada/domingo.");
+                      setEditDate("");
+                      setEditDateError(
+                        "Esta data cai em um domingo ou está bloqueada.",
+                      );
                     }
                   }}
-                  className="bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white text-sm outline-none focus:border-amber-400 [color-scheme:dark]"
+                  className={`bg-zinc-800 border ${editDateError ? "border-red-500" : "border-zinc-700"} rounded-xl px-4 py-3 text-white text-sm outline-none focus:border-amber-400 [color-scheme:dark]`}
                 />
+
+                {editDateError && (
+                  <p className="text-red-400 text-xs font-bold px-1 animate-in fade-in">
+                    ⚠️ {editDateError}
+                  </p>
+                )}
               </div>
               {editDate && !isEditDateBlocked(editDate) && (
                 <div className="flex flex-col gap-1.5 animate-in zoom-in-95 duration-200">
@@ -1442,12 +1610,16 @@ export default function ClientePage() {
           onClick={() => {
             setActiveTab("agendar");
             setStep(1);
+            setPlanToBuy(null);
+            setBookingViaPlan(false);
+            setBarberId("");
+            setService("");
           }}
           className={`p-4 rounded-2xl -mt-14 shadow-[0_10px_25px_rgba(251,191,36,0.3)] transition-all active:scale-90 ${activeTab === "agendar" ? "bg-amber-400 text-zinc-950 scale-105" : "bg-zinc-800 text-amber-400 hover:bg-zinc-700"}`}
         >
           <PlusCircle size={28} strokeWidth={2.5} />
         </button>
-        <NavButton icon={Award} label="Fidelidade" tabId="fidelidade" />
+        <NavButton icon={Award} label="Planos" tabId="planos" />
         <NavButton icon={User} label="Perfil" tabId="perfil" />
       </nav>
     </main>
