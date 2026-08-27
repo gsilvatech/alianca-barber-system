@@ -158,7 +158,7 @@ export default function ClientePage() {
     preco: number;
   } | null>(null);
 
-  // --- LÓGICA DA TRAVA DE PLANOS ---
+  // LÓGICA DA TRAVA DE PLANOS
   let isPlanFullyActive = false;
   let activePlanBarberName = "";
 
@@ -691,12 +691,37 @@ export default function ClientePage() {
   const isDateBlocked = (d: string) => {
     if (!d) return false;
     const day = new Date(d + "T12:00:00").getDay();
-    return day === 0 || blockedDates.includes(d);
+
+    // Bloqueia Domingos (0) ou datas que estão na lista de bloqueio
+    if (day === 0 || blockedDates.includes(d)) return true;
+
+    // Bloqueio dos sábados que o 01 pediu
+    const ID_01DoCorte = "04e1c5c9-2245-438b-a20c-f15f6b2d33b1";
+    if (day === 6 && bookingViaPlan && barberId === ID_01DoCorte) {
+      return true;
+    }
+
+    return false;
   };
+
   const isEditDateBlocked = (d: string) => {
     if (!d) return false;
     const day = new Date(d + "T12:00:00").getDay();
-    return day === 0 || blockedDates.includes(d);
+
+    if (day === 0 || blockedDates.includes(d)) return true;
+
+    const ID_01DoCorte = "04e1c5c9-2245-438b-a20c-f15f6b2d33b1";
+    const isPlanAppointment = !!editingAppointment?.client_plan_id;
+
+    if (
+      day === 6 &&
+      isPlanAppointment &&
+      editingAppointment?.barber_id === ID_01DoCorte
+    ) {
+      return true;
+    }
+
+    return false;
   };
 
   const NavButton = ({ icon: Icon, label, tabId }: any) => (
@@ -738,7 +763,7 @@ export default function ClientePage() {
       </header>
 
       <div className="max-w-2xl mx-auto px-4 py-6 flex flex-col gap-6">
-        {/* --- HOME --- */}
+        {/* HOME */}
         {activeTab === "home" && (
           <div className="flex flex-col gap-6 animate-in fade-in duration-500">
             <div>
@@ -954,7 +979,7 @@ export default function ClientePage() {
           </div>
         )}
 
-        {/* --- HISTÓRICO --- */}
+        {/* HISTÓRICO */}
         {activeTab === "historico" && (
           <div className="flex flex-col gap-4 animate-in fade-in duration-500">
             <div>
@@ -995,7 +1020,7 @@ export default function ClientePage() {
           </div>
         )}
 
-        {/* --- AGENDAR --- */}
+        {/* AGENDAR */}
         {activeTab === "agendar" && (
           <div className="flex flex-col gap-6 animate-in slide-in-from-bottom-4 duration-500">
             <div className="flex items-center gap-2">
@@ -1168,9 +1193,24 @@ export default function ClientePage() {
                           setDateError("");
                         } else {
                           setDate("");
-                          setDateError(
-                            "Domingos ou datas bloqueadas não estão disponíveis.",
-                          );
+                          // Verifica se o bloqueio foi causado pela regra do sábado no plano do 01
+                          const day = new Date(d + "T12:00:00").getDay();
+                          const ID_01DoCorte =
+                            "04e1c5c9-2245-438b-a20c-f15f6b2d33b1";
+
+                          if (
+                            day === 6 &&
+                            bookingViaPlan &&
+                            barberId === ID_01DoCorte
+                          ) {
+                            setDateError(
+                              "O seu Plano VIP é válido apenas de segunda a sexta-feira.",
+                            );
+                          } else {
+                            setDateError(
+                              "Domingos ou datas bloqueadas não estão disponíveis.",
+                            );
+                          }
                         }
                       }}
                       className={`bg-zinc-800 border ${dateError ? "border-red-500" : "border-zinc-700"} rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-amber-400 transition-colors [color-scheme:dark]`}
@@ -1252,7 +1292,6 @@ export default function ClientePage() {
           </div>
         )}
 
-        {/* CLUBE DE VANTAGENS / PLANOS */}
         {/* CLUBE DE VANTAGENS / PLANOS */}
         {activeTab === "planos" && (
           <div className="flex flex-col gap-6 animate-in fade-in duration-500">
@@ -1360,7 +1399,7 @@ export default function ClientePage() {
           </div>
         )}
 
-        {/* --- PERFIL --- */}
+        {/* PERFIL */}
         {activeTab === "perfil" && (
           <div className="flex flex-col gap-6 animate-in fade-in duration-500">
             <div className="flex justify-between items-center">
@@ -1450,7 +1489,7 @@ export default function ClientePage() {
                 </div>
               )}
 
-              {/* 3. NOVO BOTÃO DE ALTERAR SENHA AQUI */}
+              {/* BOTÃO DE ALTERAR SENHA */}
               {!isEditingProfile && (
                 <div className="flex flex-col gap-1 border-t border-zinc-800/60 pt-4 mt-2">
                   <button
@@ -1467,7 +1506,7 @@ export default function ClientePage() {
         )}
       </div>
 
-      {/* --- MODAIS DE AÇÃO --- */}
+      {/* MODAIS DE AÇÃO */}
 
       {editingAppointment && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 px-4 backdrop-blur-sm">
@@ -1500,9 +1539,25 @@ export default function ClientePage() {
                       setEditDateError("");
                     } else {
                       setEditDate("");
-                      setEditDateError(
-                        "Esta data cai em um domingo ou está bloqueada.",
-                      );
+                      const day = new Date(d + "T12:00:00").getDay();
+                      const ID_01DoCorte =
+                        "04e1c5c9-2245-438b-a20c-f15f6b2d33b1";
+                      const isPlanAppointment =
+                        !!editingAppointment?.client_plan_id;
+
+                      if (
+                        day === 6 &&
+                        isPlanAppointment &&
+                        editingAppointment?.barber_id === ID_01DoCorte
+                      ) {
+                        setEditDateError(
+                          "Remarcações do Plano VIP ocorrem apenas de segunda a sexta.",
+                        );
+                      } else {
+                        setEditDateError(
+                          "Esta data cai em um domingo ou está bloqueada.",
+                        );
+                      }
                     }
                   }}
                   className={`bg-zinc-800 border ${editDateError ? "border-red-500" : "border-zinc-700"} rounded-xl px-4 py-3 text-white text-sm outline-none focus:border-amber-400 [color-scheme:dark]`}
@@ -1602,7 +1657,7 @@ export default function ClientePage() {
         </div>
       )}
 
-      {/* --- NAVIGATION BAR --- */}
+      {/* NAVIGATION BAR */}
       <nav className="fixed bottom-0 left-0 right-0 bg-zinc-900/80 backdrop-blur-xl border-t border-zinc-800/50 px-4 pt-3 pb-8 flex justify-between items-center z-50">
         <NavButton icon={HomeIcon} label="Início" tabId="home" />
         <NavButton icon={Clock} label="Histórico" tabId="historico" />
