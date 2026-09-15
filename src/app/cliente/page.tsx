@@ -414,7 +414,6 @@ export default function ClientePage() {
         { data: barb },
         { data: upcomingAppts },
         { data: pastAppts },
-        { data: svcs },
         { data: planData },
       ] = await Promise.all([
         supabase
@@ -444,7 +443,6 @@ export default function ClientePage() {
           .lt("date", todayStr)
           .order("date", { ascending: false })
           .limit(10),
-        supabase.from("services").select("*").order("name"),
         supabase
           .from("client_plans")
           .select(
@@ -465,8 +463,6 @@ export default function ClientePage() {
       setBarbers(barb || []);
       setAppointments((upcomingAppts as any) || []);
       setPastAppointments((pastAppts as any) || []);
-      setServicesList(svcs || []);
-
       setActivePlan(planData && planData.length > 0 ? planData[0] : null);
 
       if (prof) {
@@ -476,6 +472,33 @@ export default function ClientePage() {
     }
     load();
   }, [activeTab]);
+
+  useEffect(() => {
+    setDate("");
+    setTime("");
+    setTakenSlots([]);
+
+    if (!barberId) {
+      setServicesList([]);
+      return;
+    }
+
+    let cancelled = false;
+
+    async function loadBarberServices() {
+      const { data } = await supabase
+        .from("services")
+        .select("*")
+        .eq("barber_id", barberId)
+        .order("name");
+      if (!cancelled) setServicesList(data || []);
+    }
+
+    loadBarberServices();
+    return () => {
+      cancelled = true;
+    };
+  }, [barberId]);
 
   useEffect(() => {
     if (!barberId) return;
@@ -1126,6 +1149,7 @@ export default function ClientePage() {
                         key={b.id}
                         onClick={() => {
                           setBarberId(b.id);
+                          setService("");
                           if (planToBuy) {
                             setService(`Aquisição de Plano: ${planToBuy.nome}`);
                             setStep(3);
@@ -1171,6 +1195,11 @@ export default function ClientePage() {
                           </span>
                         </button>
                       ))}
+                    {servicesList.length === 0 && (
+                      <p className="py-4 text-center text-xs text-zinc-500">
+                        Este barbeiro ainda não cadastrou serviços.
+                      </p>
+                    )}
                   </div>
                 </div>
               )}

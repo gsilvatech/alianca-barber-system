@@ -46,6 +46,7 @@ const isPast = (dateStr: string, timeStr: string) => {
 const getServiceDuration = (
   serviceString: string,
   servicesList: any[],
+  barberId?: string,
 ): number => {
   if (!serviceString) return 30;
   let cleanName = serviceString;
@@ -55,7 +56,11 @@ const getServiceDuration = (
   if (cleanName.startsWith("PLANO: ") || cleanName.startsWith("ADMIN: ")) {
     cleanName = cleanName.replace("PLANO: ", "").replace("ADMIN: ", "");
   }
-  const svc = servicesList.find((s) => s.name.trim() === cleanName.trim());
+  const svc = servicesList.find(
+    (s) =>
+      s.name.trim() === cleanName.trim() &&
+      (!barberId || s.barber_id === barberId),
+  );
   return svc?.duration || 30;
 };
 
@@ -82,6 +87,7 @@ type UserProfile = {
 };
 type BarberService = {
   id: string;
+  barber_id: string;
   name: string;
   price: number;
   duration: number;
@@ -244,7 +250,11 @@ export default function AdminPage() {
         a.status === "confirmed",
     );
 
-    const duration = getServiceDuration(form.service, servicesList);
+    const duration = getServiceDuration(
+      form.service,
+      servicesList,
+      form.barberId,
+    );
     const blocked: string[] = [];
 
     HOURS.forEach((slot) => {
@@ -253,7 +263,11 @@ export default function AdminPage() {
 
       const hasConflict = existingAppts.some((appt: any) => {
         const apptStart = timeToMinutes(appt.time);
-        const apptDuration = getServiceDuration(appt.service, servicesList);
+        const apptDuration = getServiceDuration(
+          appt.service,
+          servicesList,
+          appt.barber_id,
+        );
         const apptEnd = apptStart + apptDuration;
         return slotStart < apptEnd && slotEnd > apptStart;
       });
@@ -322,7 +336,9 @@ export default function AdminPage() {
     let svcName = appt.service;
     if (svcName.startsWith("MANUAL:"))
       svcName = svcName.split(" - ")[1] || svcName;
-    const svc = servicesList.find((s) => s.name === svcName);
+    const svc = servicesList.find(
+      (s) => s.name === svcName && s.barber_id === appt.barber_id,
+    );
     return svc ? svc.price : 0;
   }
 
@@ -1151,7 +1167,9 @@ export default function AdminPage() {
               <select
                 className="bg-zinc-800 border border-zinc-700 p-3 md:p-3.5 rounded-xl outline-none text-xs md:text-sm font-bold text-white focus:border-amber-400"
                 value={form.barberId}
-                onChange={(e) => setForm({ ...form, barberId: e.target.value })}
+                onChange={(e) =>
+                  setForm({ ...form, barberId: e.target.value, service: "" })
+                }
               >
                 <option value="">Selecionar Barbeiro</option>
                 {barbers.map((b) => (
@@ -1168,7 +1186,11 @@ export default function AdminPage() {
               >
                 <option value="">Selecionar Serviço</option>
                 {servicesList
-                  .filter((s) => !s.name.toLowerCase().includes("plano"))
+                  .filter(
+                    (s) =>
+                      s.barber_id === form.barberId &&
+                      !s.name.toLowerCase().includes("plano"),
+                  )
                   .map((s) => (
                     <option key={s.id} value={s.name}>
                       {s.name} (Tabela: R${s.price})

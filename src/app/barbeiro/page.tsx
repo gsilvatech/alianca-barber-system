@@ -717,7 +717,11 @@ export default function BarbeiroPage() {
   }
   async function loadServicesFromDB() {
     if (!barberId) return;
-    const { data } = await supabase.from("services").select("*").order("name");
+    const { data } = await supabase
+      .from("services")
+      .select("*")
+      .eq("barber_id", barberId)
+      .order("name");
     setServicesList(data || []);
   }
 
@@ -1342,14 +1346,19 @@ export default function BarbeiroPage() {
         price: parseFloat(svcPrice.replace(",", ".")),
         duration: parseInt(svcDuration),
       })
-      .eq("id", svcId);
+      .eq("id", svcId)
+      .eq("barber_id", barberId);
     setIsEditServiceModalOpen(false);
     loadServicesFromDB();
     setIsSavingSvc(false);
   }
   async function handleDeleteService(id: string) {
     if (!confirm("Deseja excluir?")) return;
-    await supabase.from("services").delete().eq("id", id);
+    await supabase
+      .from("services")
+      .delete()
+      .eq("id", id)
+      .eq("barber_id", barberId);
     loadServicesFromDB();
   }
 
