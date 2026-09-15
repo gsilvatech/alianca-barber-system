@@ -1339,10 +1339,6 @@ export default function ClientePage() {
                   <li className="flex gap-2 items-center">
                     <span className="text-amber-400">✓</span> 4 Cortes no mês
                   </li>
-                  <li className="flex gap-2 items-center">
-                    <span className="text-amber-400">✓</span> Desconto em
-                    produtos
-                  </li>
                 </ul>
                 <button
                   onClick={() => {
@@ -1378,10 +1374,6 @@ export default function ClientePage() {
                   <li className="flex gap-2 items-center">
                     <span className="text-zinc-950 font-black">✓</span> 4 Barbas
                     no mês
-                  </li>
-                  <li className="flex gap-2 items-center">
-                    <span className="text-zinc-950 font-black">✓</span> 1 Bebida
-                    por visita
                   </li>
                 </ul>
                 <button
