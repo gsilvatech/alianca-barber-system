@@ -47,7 +47,13 @@ const getServiceDuration = (
   serviceString: string,
   servicesList: any[],
   barberId?: string,
+  savedDuration?: number | null,
 ): number => {
+  const persistedDuration = Number(savedDuration);
+  if (Number.isFinite(persistedDuration) && persistedDuration > 0) {
+    return persistedDuration;
+  }
+
   if (!serviceString) return 30;
   let cleanName = serviceString;
   if (cleanName.startsWith("MANUAL:")) {
@@ -71,6 +77,7 @@ type Appointment = {
   time: string;
   status: string;
   price_applied: number;
+  duration_applied?: number | null;
   profiles: { name: string };
   barbers: { display_name: string };
   created_at: string;
@@ -199,7 +206,7 @@ export default function AdminPage() {
         supabase
           .from("appointments")
           .select(
-            "id, service, date, time, status, price_applied, barber_id, created_at, profiles(name), barbers(display_name)",
+            "id, service, date, time, status, price_applied, duration_applied, barber_id, created_at, profiles(name), barbers(display_name)",
           )
           .gte("date", firstDayThisMonth)
           .lte("date", lastDayThisMonth)
@@ -267,6 +274,7 @@ export default function AdminPage() {
           appt.service,
           servicesList,
           appt.barber_id,
+          appt.duration_applied,
         );
         const apptEnd = apptStart + apptDuration;
         return slotStart < apptEnd && slotEnd > apptStart;
@@ -300,6 +308,11 @@ export default function AdminPage() {
       time: form.time,
       status: "confirmed",
       price_applied: 0,
+      duration_applied: getServiceDuration(
+        form.service,
+        servicesList,
+        form.barberId,
+      ),
     });
 
     if (error) {
@@ -311,7 +324,7 @@ export default function AdminPage() {
       const { data: newAppts } = await supabase
         .from("appointments")
         .select(
-          "id, service, date, time, status, price_applied, barber_id, created_at, profiles(name), barbers(display_name)",
+          "id, service, date, time, status, price_applied, duration_applied, barber_id, created_at, profiles(name), barbers(display_name)",
         )
         .gte("date", firstDayThisMonth)
         .lte("date", lastDayThisMonth)

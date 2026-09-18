@@ -46,7 +46,13 @@ const isPast = (dateStr: string, timeStr: string) => {
 const getServiceDuration = (
   serviceString: string,
   servicesList: any[],
+  savedDuration?: number | null,
 ): number => {
+  const persistedDuration = Number(savedDuration);
+  if (Number.isFinite(persistedDuration) && persistedDuration > 0) {
+    return persistedDuration;
+  }
+
   if (!serviceString) return 60;
 
   let cleanName = serviceString.trim();
@@ -67,7 +73,13 @@ const getServiceDuration = (
 
   const nameLower = cleanName.toLowerCase();
 
-  // TRAVA DE ANÁLISE SEMÂNTICA
+  // O cadastro do barbeiro é a fonte da verdade. As regras abaixo são apenas
+  // um fallback para históricos cujo serviço não exista mais.
+  const svc = servicesList.find(
+    (s) => s.name.trim().toLowerCase() === nameLower,
+  );
+  if (svc?.duration) return Number(svc.duration);
+
   const temCabelo = nameLower.includes("cabelo") || nameLower.includes("corte");
   const temBarba = nameLower.includes("barba");
   const temQuimica =
@@ -84,13 +96,6 @@ const getServiceDuration = (
     if (temBarba) return 30;
   }
 
-  const svc = servicesList.find(
-    (s) => s.name.trim().toLowerCase() === nameLower,
-  );
-  if (svc && svc.duration) {
-    return Number(svc.duration);
-  }
-
   return 60;
 };
 
@@ -102,6 +107,7 @@ type Appointment = {
   time: string;
   status: string;
   barber_id: string;
+  duration_applied?: number | null;
   client_plan_id?: string;
   barbers: { display_name: string };
 };
@@ -300,7 +306,7 @@ export default function ClientePage() {
       const { data: updatedAppts } = await supabase
         .from("appointments")
         .select(
-          "id, service, date, time, status, barber_id, barbers(display_name)",
+          "id, service, date, time, status, barber_id, duration_applied, barbers(display_name)",
         )
         .eq("client_id", profile!.id)
         .eq("status", "confirmed")
@@ -343,6 +349,8 @@ export default function ClientePage() {
         appliedPrice = svcDetails.price;
       }
 
+      const durationApplied = getServiceDuration(finalServiceTag, servicesList);
+
       const { error } = await supabase.from("appointments").insert({
         client_id: user!.id,
         barber_id: barberId,
@@ -351,6 +359,7 @@ export default function ClientePage() {
         time,
         status: "confirmed",
         price_applied: appliedPrice,
+        duration_applied: durationApplied,
         client_plan_id: bookingViaPlan ? activePlan.id : null,
       });
 
@@ -388,6 +397,8 @@ export default function ClientePage() {
         setTimeout(() => {
           window.location.href = urlWorkspace;
         }, 100);
+      } else {
+        alert(`Não foi possível concluir o agendamento: ${error.message}`);
       }
     } catch (err) {
       console.error(err);
@@ -425,7 +436,7 @@ export default function ClientePage() {
         supabase
           .from("appointments")
           .select(
-            "id, service, date, time, status, barber_id, client_plan_id, barbers(display_name)",
+            "id, service, date, time, status, barber_id, duration_applied, client_plan_id, barbers(display_name)",
           )
           .eq("client_id", user.id)
           .eq("status", "confirmed")
@@ -436,7 +447,7 @@ export default function ClientePage() {
         supabase
           .from("appointments")
           .select(
-            "id, service, date, time, status, barber_id, barbers(display_name)",
+            "id, service, date, time, status, barber_id, duration_applied, barbers(display_name)",
           )
           .eq("client_id", user.id)
           .eq("status", "confirmed")
@@ -518,7 +529,7 @@ export default function ClientePage() {
     async function loadSlots() {
       const { data } = await supabase
         .from("appointments")
-        .select("time, service")
+        .select("time, service, duration_applied")
         .eq("barber_id", barberId)
         .eq("date", date)
         .eq("status", "confirmed");
@@ -571,7 +582,11 @@ export default function ClientePage() {
         const hasConflict = existingAppts.some((appt: any) => {
           const apptStart = timeToMinutes(appt.time);
 
-          const apptDuration = getServiceDuration(appt.service, servicesList);
+          const apptDuration = getServiceDuration(
+            appt.service,
+            servicesList,
+            appt.duration_applied,
+          );
 
           const apptEnd = apptStart + apptDuration;
           return slotStart < apptEnd && slotEnd > apptStart;
@@ -590,7 +605,7 @@ export default function ClientePage() {
     async function loadEditSlots() {
       const { data } = await supabase
         .from("appointments")
-        .select("time, service")
+        .select("time, service, duration_applied")
         .eq("barber_id", editingAppointment!.barber_id)
         .eq("date", editDate)
         .eq("status", "confirmed");
@@ -605,6 +620,7 @@ export default function ClientePage() {
       const duration = getServiceDuration(
         editingAppointment!.service,
         servicesList,
+        editingAppointment!.duration_applied,
       );
 
       HOURS.forEach((slot) => {
@@ -644,7 +660,11 @@ export default function ClientePage() {
             return false;
           const apptStart = timeToMinutes(appt.time);
 
-          const apptDuration = getServiceDuration(appt.service, servicesList);
+          const apptDuration = getServiceDuration(
+            appt.service,
+            servicesList,
+            appt.duration_applied,
+          );
 
           const apptEnd = apptStart + apptDuration;
           return slotStart < apptEnd && slotEnd > apptStart;

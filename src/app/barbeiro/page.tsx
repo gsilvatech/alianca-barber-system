@@ -64,7 +64,13 @@ const isPast = (dateStr: string, timeStr: string) => {
 const getServiceDuration = (
   serviceString: string,
   servicesList: any[],
+  savedDuration?: number | null,
 ): number => {
+  const persistedDuration = Number(savedDuration);
+  if (Number.isFinite(persistedDuration) && persistedDuration > 0) {
+    return persistedDuration;
+  }
+
   if (!serviceString) return 60;
 
   let cleanName = serviceString.trim();
@@ -79,7 +85,11 @@ const getServiceDuration = (
 
   const nameLower = cleanName.toLowerCase();
 
-  // TRAVA DE ANÁLISE SEMÂNTICA
+  const svc = servicesList.find(
+    (s) => s.name.trim().toLowerCase() === nameLower,
+  );
+  if (svc?.duration) return Number(svc.duration);
+
   const temCabelo = nameLower.includes("cabelo") || nameLower.includes("corte");
   const temBarba = nameLower.includes("barba");
   const temQuimica =
@@ -94,13 +104,6 @@ const getServiceDuration = (
   if (isPlan) {
     if (temCabelo) return 40;
     if (temBarba) return 30;
-  }
-
-  const svc = servicesList.find(
-    (s) => s.name.trim().toLowerCase() === nameLower,
-  );
-  if (svc && svc.duration) {
-    return Number(svc.duration);
   }
 
   return 60;
@@ -180,6 +183,7 @@ type Appointment = {
   time: string;
   status: string;
   price_applied?: number;
+  duration_applied?: number | null;
   profiles: { name: string; phone: string };
 };
 type Product = {
@@ -528,7 +532,7 @@ export default function BarbeiroPage() {
         supabase
           .from("appointments")
           .select(
-            "id, client_id, client_plan_id, service, date, time, status, profiles(name, phone)",
+            "id, client_id, client_plan_id, service, date, time, status, duration_applied, profiles(name, phone)",
           )
           .eq("barber_id", barberId)
           .eq("date", todayStr)
@@ -537,7 +541,7 @@ export default function BarbeiroPage() {
         supabase
           .from("appointments")
           .select(
-            "id, client_id, client_plan_id, service, date, time, status, profiles(name, phone)",
+            "id, client_id, client_plan_id, service, date, time, status, duration_applied, profiles(name, phone)",
           )
           .eq("barber_id", barberId)
           .gte("date", todayStr)
@@ -585,7 +589,7 @@ export default function BarbeiroPage() {
 
     const { data: apptsData } = await supabase
       .from("appointments")
-      .select("id, date, time, status, service")
+      .select("id, date, time, status, service, duration_applied")
       .eq("barber_id", barberId)
       .gte("date", firstDayThisYear)
       .in("status", ["confirmed", "completed"]);
@@ -791,7 +795,7 @@ export default function BarbeiroPage() {
     async function loadEditSlots() {
       const { data } = await supabase
         .from("appointments")
-        .select("time, service")
+        .select("time, service, duration_applied")
         .eq("barber_id", barberId)
         .eq("date", editDate)
         .eq("status", "confirmed");
@@ -800,6 +804,7 @@ export default function BarbeiroPage() {
       const duration = getServiceDuration(
         editingAppointment!.service,
         servicesList,
+        editingAppointment!.duration_applied,
       );
 
       HOURS.forEach((slot) => {
@@ -821,7 +826,11 @@ export default function BarbeiroPage() {
 
           const apptStart = timeToMinutes(appt.time);
 
-          const apptDuration = getServiceDuration(appt.service, servicesList);
+          const apptDuration = getServiceDuration(
+            appt.service,
+            servicesList,
+            appt.duration_applied,
+          );
 
           const apptEnd = apptStart + apptDuration;
           return slotStart < apptEnd && slotEnd > apptStart;
@@ -847,7 +856,7 @@ export default function BarbeiroPage() {
     async function loadManualSlots() {
       const { data } = await supabase
         .from("appointments")
-        .select("time, service")
+        .select("time, service, duration_applied")
         .eq("barber_id", barberId)
         .eq("date", manualDate)
         .eq("status", "confirmed");
@@ -863,7 +872,11 @@ export default function BarbeiroPage() {
         const hasConflict = existingAppts.some((appt: any) => {
           const apptStart = timeToMinutes(appt.time);
 
-          const apptDuration = getServiceDuration(appt.service, servicesList);
+          const apptDuration = getServiceDuration(
+            appt.service,
+            servicesList,
+            appt.duration_applied,
+          );
 
           const apptEnd = apptStart + apptDuration;
           return slotStart < apptEnd && slotEnd > apptStart;
@@ -921,6 +934,7 @@ export default function BarbeiroPage() {
             service: motivoFinal,
             status: "confirmed",
             price_applied: 0,
+            duration_applied: 10,
           });
         });
       }
@@ -1089,6 +1103,10 @@ export default function BarbeiroPage() {
             client_plan_id: newPlan.id,
             service: `PLANO: ${planName}`,
             price_applied: 0,
+            duration_applied: getServiceDuration(
+              `PLANO: ${planName}`,
+              servicesList,
+            ),
           })
           .eq("id", appointmentToAbsorb);
       }
@@ -1423,6 +1441,7 @@ export default function BarbeiroPage() {
     }
 
     const loops = isRecurring ? parseInt(recurringWeeks) : 1;
+    const durationApplied = getServiceDuration(finalServiceTag, servicesList);
     const appointmentsToInsert = [];
 
     for (let i = 0; i < loops; i++) {
@@ -1436,6 +1455,7 @@ export default function BarbeiroPage() {
         service: finalServiceTag,
         status: "confirmed",
         price_applied: finalPrice,
+        duration_applied: durationApplied,
       });
     }
 
